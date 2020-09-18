@@ -17,15 +17,6 @@ struct { int sdl; int rfb; } buttonMapping[]={
 	{0,0}
 };
 
-struct { char mask; int bits_stored; } utf8Mapping[]= {
-	{0b00111111, 6},
-	{0b01111111, 7},
-	{0b00011111, 5},
-	{0b00001111, 4},
-	{0b00000111, 3},
-	{0,0}
-};
-
 static int viewOnly=0, buttonMask;
 /* client's pointer position */
 int x,y;
@@ -125,6 +116,11 @@ static rfbBool resize(rfbClient* client) {
 	int depth=client->format.bitsPerPixel;
 //log_citra("%s: %d %d %d",__func__,width,height,depth);
 
+	if (width > 1024 || height > 1024) {
+		rfbClientErr("resize: screen size >1024px not supported");
+		return FALSE;
+	}
+
 	client->updateRect.x = client->updateRect.y = 0;
 	client->updateRect.w = width;
 	client->updateRect.h = height;
@@ -137,7 +133,7 @@ static rfbBool resize(rfbClient* client) {
 	SDL_Surface* sdl = SDL_SetVideoMode(width, height, depth, flags);
 
 	if(!sdl) {
-		rfbClientErr("resize: error creating surface: %s\n", SDL_GetError());
+		rfbClientErr("resize: error creating surface: %s", SDL_GetError());
 		return FALSE;
 	}
 
@@ -172,34 +168,35 @@ static rfbKeySym SDL_key2rfbKeySym(SDL_KeyboardEvent* e) {
 	return 0;
 }
 
+/*
 static void update(rfbClient* cl,int x,int y,int w,int h) {
 }
 
 static void kbd_leds(rfbClient* cl, int value, int pad) {
-	/* note: pad is for future expansion 0=unused */
-	fprintf(stderr,"Led State= 0x%02X\n", value);
-	fflush(stderr);
+	// note: pad is for future expansion 0=unused
+	rfbClientErr("Led State= 0x%02X", value);
 }
 
-/* trivial support for textchat */
+// trivial support for textchat
 static void text_chat(rfbClient* cl, int value, char *text) {
 	switch(value) {
 	case rfbTextChatOpen:
-		fprintf(stderr,"TextChat: We should open a textchat window!\n");
+		rfbClientErr("TextChat: We should open a textchat window!");
 		TextChatOpen(cl);
 		break;
 	case rfbTextChatClose:
-		fprintf(stderr,"TextChat: We should close our window!\n");
+		rfbClientErr("TextChat: We should close our window!");
 		break;
 	case rfbTextChatFinished:
-		fprintf(stderr,"TextChat: We should close our window!\n");
+		rfbClientErr("TextChat: We should close our window!");
 		break;
 	default:
-		fprintf(stderr,"TextChat: Received \"%s\"\n", text);
+		rfbClientErr("TextChat: Received \"%s\"", text);
 		break;
 	}
 	fflush(stderr);
 }
+*/
 
 static void cleanup(rfbClient* cl)
 {
@@ -253,24 +250,24 @@ static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 		rfbClientCleanup(cl);
 		exit(0);
 	default:
-		rfbClientLog("ignore SDL event: 0x%x\n", e->type);
+		rfbClientLog("ignore SDL event: 0x%x", e->type);
 	}
 	return TRUE;
 }
 
 //static void got_selection(rfbClient *cl, const char *text, int len){}
 
-static rfbCredential* get_credential(rfbClient* cl, int credentialType){
+static rfbCredential* get_credential(rfbClient* cl, int credentialType) {
         rfbCredential *c = malloc(sizeof(rfbCredential));
 	c->userCredential.username = malloc(RFB_BUF_SIZE);
 	c->userCredential.password = malloc(RFB_BUF_SIZE);
 
 	if(credentialType != rfbCredentialTypeUser) {
-	    rfbClientErr("something else than username and password required for authentication\n");
+	    rfbClientErr("something else than username and password required for authentication");
 	    return NULL;
 	}
 
-	rfbClientLog("username and password required for authentication!\n");
+	rfbClientLog("username and password required for authentication!");
 	printf("user: ");
 	fgets(c->userCredential.username, RFB_BUF_SIZE, stdin);
 	printf("pass: ");
@@ -298,7 +295,7 @@ int main() {
 	SDL_Init(SDL_INIT_VIDEO);
 	atexit(SDL_Quit);
 	consoleInit(GFX_BOTTOM, NULL);
-	SDL_SetVideoMode(400, 240, 32, SDL_SWSURFACE);
+	SDL_SetVideoMode(400, 240, 32, 0);
 
 	// init 3DS buttons to their values
 	for (int i=0; buttons3ds[i].key!=0; ++i)
@@ -308,69 +305,85 @@ int main() {
 	socInit(SOC_buffer, SOC_BUFFERSIZE);
 
 	rfbClientLog=rfbClientErr=log_citra;
-	
-	/* 16-bit: cl=rfbGetClient(5,3,2); */
-	cl=rfbGetClient(8,3,4);
-	cl->MallocFrameBuffer=resize;
-	cl->canHandleNewFBSize = TRUE;
-	cl->GotFrameBufferUpdate=update;
-	cl->HandleKeyboardLedState=kbd_leds;
-	cl->HandleTextChat=text_chat;
-//		cl->GotXCutText = got_selection;
-	cl->GetCredential = get_credential;
-	cl->listenPort = LISTEN_PORT_OFFSET;
-	cl->listen6Port = LISTEN_PORT_OFFSET;
-	char *argv[] = {
-		"vncviewer",
-		"127.0.0.1:5901"};
-	int argc = 2;
+	char *hoststr = NULL;
 
-	if(!rfbInitClient(cl, &argc, argv))
-	{
-		cl = NULL; /* rfbInitClient has already freed the client struct */
-	}
+	while (1) {
 
-	while(cl) {
-		if(SDL_PollEvent(&e)) {
-			/*
-			handleSDLEvent() return 0 if user requested window close.
-			In this case, handleSDLEvent() will have called cleanup().
-			*/
-			if(!handleSDLEvent(cl, &e))
-			break;
+		// get host
+		char *port = "5901";
+		char *host = "127.0.0.1";
+
+		if (hoststr) free(hoststr);
+		hoststr = malloc(strlen(host)+strlen(port)+2);
+		sprintf(hoststr,"%s:%s",host, port);
+		/* 16-bit: cl=rfbGetClient(5,3,2); */
+		cl=rfbGetClient(8,3,4);
+		cl->MallocFrameBuffer = resize;
+		cl->canHandleNewFBSize = TRUE;
+//		cl->GotFrameBufferUpdate = update;
+//		cl->HandleKeyboardLedState=kbd_leds;
+//		cl->HandleTextChat=text_chat;
+	//		cl->GotXCutText = got_selection;
+		cl->GetCredential = get_credential;
+//		cl->listenPort = LISTEN_PORT_OFFSET;
+//		cl->listen6Port = LISTEN_PORT_OFFSET;
+		char *argv[] = {
+			"vncviewer",
+			hoststr};
+		int argc = sizeof(argv)/sizeof(char*);
+
+		rfbClientLog("Connecting to %s", hoststr);
+		if(!rfbInitClient(cl, &argc, argv))
+		{
+			cl = NULL; /* rfbInitClient has already freed the client struct */
 		}
-		else {
-			i=WaitForMessage(cl,500);
-			if(i<0)
-			{
+
+		while(cl) {
+			if(SDL_PollEvent(&e)) {
+				/*
+				handleSDLEvent() return 0 if user requested window close.
+				In this case, handleSDLEvent() will have called cleanup().
+				*/
+				if(!handleSDLEvent(cl, &e))
 				break;
 			}
-			if(i)
-				if(!HandleRFBServerMessage(cl))
+			else {
+				i=WaitForMessage(cl,500);
+				if(i<0)
 				{
 					break;
 				}
+				if(i)
+					if(!HandleRFBServerMessage(cl))
+					{
+						break;
+					}
+			}
+			SDL_Flip(rfbClientGetClientData(cl, SDL_Init));
 		}
-		SDL_Flip(rfbClientGetClientData(cl, SDL_Init));
+		cleanup(cl);
+
+
+		// Client disconnected 
+		rfbClientLog("press A to retry, START to exit");
+		if (cl) SDL_Flip(rfbClientGetClientData(cl, SDL_Init));
+		
+		while (aptMainLoop())
+		{
+			gspWaitForVBlank();
+			//gfxSwapBuffers();
+			hidScanInput();
+
+			// Your code goes here
+			u32 kDown = hidKeysDown();
+			if (kDown & KEY_START)
+				goto quit; // break in order to return to hbmenu
+			if (kDown & KEY_A)
+				break; // break in order to return to hbmenu
+		}
 	}
-
-
-	// Main loop
-	printf("press START to exit\n");
-	if (cl) SDL_Flip(rfbClientGetClientData(cl, SDL_Init));
-	while (aptMainLoop())
-	{
-		gspWaitForVBlank();
-		//gfxSwapBuffers();
-		hidScanInput();
-
-		// Your code goes here
-		u32 kDown = hidKeysDown();
-		if (kDown & KEY_START)
-			break; // break in order to return to hbmenu
-	}
-
+quit:
+	if (hoststr) free(hoststr);
 	socExit();
-	cleanup(cl);
 	return 0;
 }
