@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <3ds.h>
 #include <SDL/SDL.h>
+#include <SDL/SDL_image.h>
 #include <rfb/rfbclient.h>
 
 struct { int sdl; int rfb; } buttonMapping[]={
@@ -20,17 +21,18 @@ struct { int sdl; int rfb; } buttonMapping[]={
 	{0,0}
 };
 
-static int viewOnly=0, buttonMask;
+static int viewOnly=0, buttonMask=0;
 /* client's pointer position */
 int x,y;
 rfbClient* cl;
+SDL_Surface *bgimg;
 
 // default
 struct {
 	char *name;
 	unsigned int key;
 	SDLKey sdl_key;
-	rfbKeySym rfb_key;
+	int rfb_key;
 } buttons3ds[] = {
 	{"A", KEY_A, SDLK_a,	XK_a},
 	{"B", KEY_B, SDLK_b, XK_b},
@@ -40,7 +42,7 @@ struct {
 	{"R", KEY_R, SDLK_w, XK_w},
 	{"ZL", KEY_ZL, SDLK_1, XK_1},
 	{"ZR", KEY_ZR, SDLK_2, XK_2},
-	{"START", KEY_START, SDLK_RETURN, XK_Return},
+	{"START", KEY_START, SDLK_RETURN, -0x100}, // disconnect
 	{"SELECT", KEY_SELECT, SDLK_ESCAPE, XK_Escape},
 
 	{"CPAD_UP", KEY_CPAD_UP, SDLK_UP, XK_Up}, // C-PAD
@@ -140,6 +142,8 @@ static rfbBool resize(rfbClient* client) {
 		rfbClientErr("resize: error creating surface: %s", SDL_GetError());
 		return FALSE;
 	}
+	SDL_FillRect(sdl,NULL, 0x00000000);
+	SDL_Flip(sdl);
 
 	SDL_ShowCursor(SDL_DISABLE);
 	rfbClientSetClientData(client, SDL_Init, sdl);
@@ -163,7 +167,7 @@ static rfbBool resize(rfbClient* client) {
 	return TRUE;
 }
 
-static rfbKeySym SDL_key2rfbKeySym(SDL_KeyboardEvent* e) {
+static int SDL_key2rfbKeySym(SDL_KeyboardEvent* e) {
 	SDLKey sym = e->keysym.sym;
 
 	// init 3DS buttons to their values
@@ -209,6 +213,220 @@ static void cleanup()
   cl = NULL;
 }
 
+// *****************************
+// lots of stuff below inspired from synaptics touchpad driver
+// https://github.com/freedesktop/xorg-xf86-input-synaptics
+// ******************************
+
+int mainMenu_max_tap_time=250;
+int mainMenu_click_time=100;
+int mainMenu_single_tap_timeout=250;
+int mainMenu_max_double_tap_time=250;
+int mainMenu_locked_drag_timeout=5000;
+int mainMenu_tap_and_drag_gesture=1;
+int mainMenu_locked_drags=0;
+
+typedef enum {
+    TS_START,                   /* No tap/drag in progress */
+    TS_1,                       /* After first touch */
+    TS_MOVE,                    /* Pointer movement enabled */
+    TS_2A,                      /* After first release */
+    TS_2B,                      /* After second/third/... release */
+    TS_SINGLETAP,               /* After timeout after first release */
+    TS_3,                       /* After second touch */
+    TS_DRAG,                    /* Pointer drag enabled */
+    TS_4,                       /* After release when "locked drags" enabled */
+    TS_5,                       /* After touch when "locked drags" enabled */
+    TS_CLICKPAD_MOVE,           /* After left button press on a clickpad */
+	TS_MOUSEDOWN,
+	TS_MOUSEUP,
+} TapState;
+
+static int get_timeout(TapState s)
+{
+	switch (s) {
+    case TS_1:
+    case TS_3:
+    case TS_5:
+        return mainMenu_max_tap_time;
+    case TS_SINGLETAP:
+        return mainMenu_click_time;
+    case TS_2A:
+        return mainMenu_single_tap_timeout;
+    case TS_2B:
+        return mainMenu_max_double_tap_time;
+    case TS_4:
+        return mainMenu_locked_drag_timeout;
+    default:
+		break;
+	}
+	return 0;
+}
+
+static int mouse_state = 0;
+
+static void setMouseButton(int state, int button) {
+//log_citra("enter %s",__func__);
+	SDL_Event ev = {0};
+	if (!state) {
+		ev.type = SDL_MOUSEBUTTONUP;
+		ev.button.state = SDL_RELEASED;
+	} else {
+		ev.type = SDL_MOUSEBUTTONDOWN;
+		ev.button.state = SDL_PRESSED;
+	}
+	ev.button.which = 1;
+	ev.button.button = button;
+	ev.button.x = x;
+	ev.button.y = y;
+	SDL_PushEvent(&ev);
+}
+
+static void set_tap_state(TapState s, SDL_Event *e)
+{
+    int x=-1;
+	switch (s) {
+    case TS_START:
+    case TS_1:
+    case TS_2A:
+    case TS_2B:
+	case TS_MOUSEUP:
+        x = 0;
+        break;
+    case TS_3:
+    case TS_SINGLETAP:
+	case TS_MOUSEDOWN:
+        x = 1;
+        break;
+    default:
+        break;
+    }
+    if (x != -1 && x != mouse_state) {
+		setMouseButton(x, SDL_BUTTON_LEFT);
+		mouse_state = x;
+	}
+}
+
+#define SETSTATE(x)								\
+    {status = x;								\
+	timeout = get_timeout(x);					\
+	if (timeout) timeout += SDL_GetTicks();		\
+	set_tap_state(x,e);							\
+	is_timeout=0;}
+
+int uib_handle_tap_processing(SDL_Event *e) {
+	static Uint32 timeout = 0;
+	static TapState status = TS_START;
+	static int status2 = 0;
+	int is_timeout = 0;
+
+	if (!e) {
+		switch (status2) {
+		case 2:
+			set_tap_state(TS_MOUSEDOWN, NULL);
+			--status2;
+			break;
+		case 1:
+			set_tap_state(TS_MOUSEUP, NULL);
+			--status2;
+			break;
+		}
+	}
+	
+	if (timeout && SDL_GetTicks()>=timeout) {
+		is_timeout = 1;
+		timeout = 0;
+	}
+	if (!e && !is_timeout) return 1;
+
+ restart:
+    switch (status) {
+    case TS_START: /* No tap/drag in progress */
+        if (e && e->type==SDL_MOUSEBUTTONDOWN)
+            SETSTATE(TS_1)
+        break;
+    case TS_1: /* After first touch */
+        if (is_timeout) {
+            SETSTATE(TS_MOVE)
+            goto restart;
+        }
+        else if (e && e->type==SDL_MOUSEBUTTONUP) {
+            SETSTATE(TS_2A)
+        }
+        break;
+    case TS_MOVE: /* Pointer movement enabled */
+        if (e && e->type==SDL_MOUSEBUTTONUP) {
+            SETSTATE(TS_START)
+        }
+        break;
+    case TS_2A: /* After first release */
+        if (e && e->type==SDL_MOUSEBUTTONDOWN)
+            SETSTATE(TS_3)
+        else if (is_timeout)
+            SETSTATE(TS_SINGLETAP)
+        break;
+    case TS_2B: /* After second/third/... release */
+        if (e && e->type==SDL_MOUSEBUTTONDOWN) {
+            SETSTATE(TS_3)
+        }
+        else if (is_timeout) {
+            SETSTATE(TS_START)
+            status2=2;
+        }
+        break;
+    case TS_SINGLETAP: /* After timeout after first release */
+        if (e && e->type==SDL_MOUSEBUTTONDOWN)
+            SETSTATE(TS_1)
+        else if (is_timeout)
+            SETSTATE(TS_START)
+        break;
+    case TS_3: /* After second touch */
+        if (is_timeout) {
+            if (mainMenu_tap_and_drag_gesture) {
+                SETSTATE(TS_DRAG)
+            }
+            else {
+                SETSTATE(TS_1)
+            }
+            goto restart;
+        }
+        else if (e && e->type==SDL_MOUSEBUTTONUP) {
+            SETSTATE(TS_2B)
+        }
+        break;
+    case TS_DRAG:
+        if (e && e->type==SDL_MOUSEBUTTONUP) {
+            if (mainMenu_locked_drags) {
+                SETSTATE(TS_4)
+            }
+            else {
+                SETSTATE(TS_START)
+            }
+        }
+        break;
+    case TS_4:
+        if (is_timeout) {
+            SETSTATE(TS_START)
+            goto restart;
+        }
+        if (e && e->type==SDL_MOUSEBUTTONDOWN)
+            SETSTATE(TS_5)
+        break;
+    case TS_5:
+        if (is_timeout) {
+            SETSTATE(TS_DRAG)
+            goto restart;
+        }
+        else if (e && e->type==SDL_MOUSEBUTTONUP) {
+            SETSTATE(TS_START)
+        }
+        break;
+	default:
+		break;
+    }
+	return 1;
+}
+
 static void safeexit();
 
 static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
@@ -223,15 +441,22 @@ static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 			break;
 
 		if (e->type == SDL_MOUSEMOTION) {
-			x = e->motion.x;
-			y = e->motion.y;
-			state = e->motion.state;
+			if (e->motion.state) {
+				x += e->motion.xrel;
+				if (x < 0) x=0;
+				if (x > cl->width) x=cl->width;
+				y += e->motion.yrel;
+				if (y < 0) y=0;
+				if (y > cl->height) y = cl->height;
+			}
 		}
 		else {
-			x = e->button.x;
-			y = e->button.y;
+			if (e->button.which == 0) {
+				uib_handle_tap_processing(e);
+				return TRUE;
+			} 
 			state = e->button.button;
-			for (i = 0; buttonMapping[i].sdl; i++)
+			for (i = 0; buttonMapping[i].sdl; i++) {
 				if (state == buttonMapping[i].sdl) {
 					state = buttonMapping[i].rfb;
 					if (e->type == SDL_MOUSEBUTTONDOWN)
@@ -240,18 +465,25 @@ static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 						buttonMask &= ~state;
 					break;
 				}
+			}
 		}
 		SendPointerEvent(cl, x, y, buttonMask);
-		buttonMask &= ~(rfbButton4Mask | rfbButton5Mask);
+		buttonMask &= ~(rfbButton4Mask | rfbButton5Mask); // clear wheel up and wheel down state
 		break;
 	}
 	case SDL_KEYUP:
 	case SDL_KEYDOWN:
 		if (viewOnly)
 			break;
-		rfbKeySym s =  SDL_key2rfbKeySym(&e->key);
-		if (s <= 0) return 0;
-		SendKeyEvent(cl, s, e->type == SDL_KEYDOWN ? TRUE : FALSE);
+		int s =  SDL_key2rfbKeySym(&e->key);
+		if (s == -256) {
+			return 0; // disconnect
+		} else if (s<0) {
+			// mouse button 1-5: -1 - -5
+			setMouseButton(e->type == SDL_KEYDOWN ? TRUE : FALSE, -s);
+		} else {
+			SendKeyEvent(cl, s, e->type == SDL_KEYDOWN ? TRUE : FALSE);
+		}
 		break;
 	case SDL_QUIT:
 		safeexit();
@@ -303,7 +535,8 @@ const char *config_filename = "/3ds/TinyVNC/vnc.cfg";
 vnc_config conf[NUMCONF] = {0};
 int cpy = -1;
 
-static int mkpath(char* file_path, int complete) {
+static int mkpath(const char* file_path1, int complete) {
+	char *file_path=strdup(file_path1);
 	char* p;
 
 	for (p=strchr(file_path+1, '/'); p; p=strchr(p+1, '/')) {
@@ -316,8 +549,10 @@ static int mkpath(char* file_path, int complete) {
 	if (complete) {
 		mkdir(file_path, 0644);
 	}
+	free(file_path);
 	return 0;
 mkpath_err:
+	free(file_path);
 	return 1;
 }
 
@@ -363,6 +598,8 @@ static int editconfig(vnc_config *c) {
 	int upd = 1;
 
 	while (ret==0) {
+		gfxFlushBuffers();
+		gspWaitForVBlank();
 		if (upd) {
 			printf(	"\x1b[2J\x1b[H\x1b[7m"
 					" Edit VNC Server                        ");
@@ -394,84 +631,85 @@ static int editconfig(vnc_config *c) {
 			if (sel == 4) printf("\x1b[0m");
 			SDL_Flip(SDL_GetVideoSurface());
 		}
-		while (!SDL_PollEvent(&e)) SDL_Delay(20);
-		if (e.type == SDL_QUIT)
-			safeexit();
-		if (e.type == SDL_KEYDOWN) {
-			switch (e.key.keysym.sym) {
-			case SDLK_b:
-				ret=-1; break;
-			case SDLK_y:
-				ret=1; break;
-			case SDLK_DOWN:
-			case SDLK_g:
-			case SDLK_k:
-				sel = (sel+1) % 5;
-				upd = 1;
-				break;
-			case SDLK_UP:
-			case SDLK_t:
-			case SDLK_i:
-				sel = (sel + 4) % 5;
-				upd = 1;
-				break;
-			case SDLK_a:
-				upd = 1;
-				switch (sel) {
-				case 0: // entry name
-					swkbdInit(&swkbd, SWKBD_TYPE_QWERTY, 2, sizeof(input));
-					swkbdSetHintText(&swkbd, "Entry Name");
-					swkbdSetInitialText(&swkbd, nc.name);
-					swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
-					button = swkbdInputText(&swkbd, input, sizeof(input));
-					if(button != SWKBD_BUTTON_LEFT)
-						strcpy(nc.name, input);
+		while (SDL_PollEvent(&e)) {
+			if (e.type == SDL_QUIT)
+				safeexit();
+			if (e.type == SDL_KEYDOWN) {
+				switch (e.key.keysym.sym) {
+				case SDLK_b:
+					ret=-1; break;
+				case SDLK_y:
+					ret=1; break;
+				case SDLK_DOWN:
+				case SDLK_g:
+				case SDLK_k:
+					sel = (sel+1) % 5;
+					upd = 1;
 					break;
-				case 1: // hostname
-					swkbdInit(&swkbd, SWKBD_TYPE_QWERTY, 2, sizeof(input));
-					swkbdSetHintText(&swkbd, "Host Name / IP address");
-					swkbdSetInitialText(&swkbd, nc.host);
-					swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
-					button = swkbdInputText(&swkbd, input, sizeof(input));
-					if(button != SWKBD_BUTTON_LEFT) {
-						strcpy(nc.host, input);
-						if (!nc.name[0])
+				case SDLK_UP:
+				case SDLK_t:
+				case SDLK_i:
+					sel = (sel + 4) % 5;
+					upd = 1;
+					break;
+				case SDLK_a:
+					upd = 1;
+					switch (sel) {
+					case 0: // entry name
+						swkbdInit(&swkbd, SWKBD_TYPE_QWERTY, 2, sizeof(input)-1);
+						swkbdSetHintText(&swkbd, "Entry Name");
+						swkbdSetInitialText(&swkbd, nc.name);
+						swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
+						button = swkbdInputText(&swkbd, input, sizeof(input));
+						if(button != SWKBD_BUTTON_LEFT)
 							strcpy(nc.name, input);
+						break;
+					case 1: // hostname
+						swkbdInit(&swkbd, SWKBD_TYPE_QWERTY, 2, sizeof(input)-1);
+						swkbdSetHintText(&swkbd, "Host Name / IP address");
+						swkbdSetInitialText(&swkbd, nc.host);
+						swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
+						button = swkbdInputText(&swkbd, input, sizeof(input));
+						if(button != SWKBD_BUTTON_LEFT) {
+							strcpy(nc.host, input);
+							if (!nc.name[0])
+								strcpy(nc.name, input);
+						}
+						break;
+					case 2: // port
+						swkbdInit(&swkbd, SWKBD_TYPE_NUMPAD, 2, 5);
+						swkbdSetHintText(&swkbd, "Port");
+						sprintf(input, "%d", nc.port);
+						swkbdSetInitialText(&swkbd, input);
+						//swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
+						button = swkbdInputText(&swkbd, input, 6);
+						if(button != SWKBD_BUTTON_LEFT)
+							nc.port = atoi(input);
+						break;
+					case 3: // username
+						swkbdInit(&swkbd, SWKBD_TYPE_QWERTY, 2, sizeof(input)-1);
+						swkbdSetHintText(&swkbd, "Username");
+						swkbdSetInitialText(&swkbd, nc.user);
+						swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
+						button = swkbdInputText(&swkbd, input, sizeof(input));
+						if(button != SWKBD_BUTTON_LEFT)
+							strcpy(nc.user, input);
+						break;
+					case 4: // password
+						swkbdInit(&swkbd, SWKBD_TYPE_WESTERN, 2, sizeof(input)-1);
+						swkbdSetHintText(&swkbd, "Password");
+						swkbdSetInitialText(&swkbd, nc.pass);
+						swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
+						swkbdSetPasswordMode(&swkbd, SWKBD_PASSWORD_HIDE_DELAY);
+						button = swkbdInputText(&swkbd, input, sizeof(input));
+						if(button != SWKBD_BUTTON_LEFT)
+							strcpy(nc.pass, input);
+						break;
 					}
 					break;
-				case 2: // port
-					swkbdInit(&swkbd, SWKBD_TYPE_NUMPAD, 2, 6);
-					swkbdSetHintText(&swkbd, "Port");
-					sprintf(input, "%d", nc.port);
-					swkbdSetInitialText(&swkbd, input);
-					//swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
-					button = swkbdInputText(&swkbd, input, 6);
-					if(button != SWKBD_BUTTON_LEFT)
-						nc.port = atoi(input);
-					break;
-				case 3: // username
-					swkbdInit(&swkbd, SWKBD_TYPE_QWERTY, 2, sizeof(input));
-					swkbdSetHintText(&swkbd, "Username");
-					swkbdSetInitialText(&swkbd, nc.user);
-					swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
-					button = swkbdInputText(&swkbd, input, sizeof(input));
-					if(button != SWKBD_BUTTON_LEFT)
-						strcpy(nc.user, input);
-					break;
-				case 4: // password
-					swkbdInit(&swkbd, SWKBD_TYPE_WESTERN, 2, sizeof(input));
-					swkbdSetHintText(&swkbd, "Password");
-					swkbdSetInitialText(&swkbd, nc.pass);
-					swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
-					swkbdSetPasswordMode(&swkbd, SWKBD_PASSWORD_HIDE_DELAY);
-					button = swkbdInputText(&swkbd, input, sizeof(input));
-					if(button != SWKBD_BUTTON_LEFT)
-						strcpy(nc.pass, input);
+				default:
 					break;
 				}
-				break;
-			default:
-				break;
 			}
 		}
 	}
@@ -500,60 +738,64 @@ static int getconfig(vnc_config *c) {
 	SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY, SDL_DEFAULT_REPEAT_INTERVAL);
 	int upd = 1;
 	while (ret == -1) {
+		gfxFlushBuffers();
+		gspWaitForVBlank();
+		//gfxSwapBuffers();
 		if (upd) {
 			printlist(sel);
 			upd=0;
 		}
-		while (!SDL_PollEvent(&e)) SDL_Delay(20);
-		if (e.type == SDL_QUIT)
-			safeexit();
-		if (e.type == SDL_KEYDOWN) {
-			switch (e.key.keysym.sym) {
-			case SDLK_b:
-				ret=1; break;
-			case SDLK_DOWN:
-			case SDLK_g:
-			case SDLK_k:
-				sel = (sel+1) % NUMCONF;
-				upd = 1;
-				break;
-			case SDLK_UP:
-			case SDLK_t:
-			case SDLK_i:
-				sel = (sel+NUMCONF-1) % NUMCONF;
-				upd = 1;
-				break;
-			case SDLK_x:
-				memset(&(conf[sel]), 0, sizeof(vnc_config));
-				upd = 1;
-				break;
-			case SDLK_y:
-				if (conf[sel].host[0])
-					cpy = sel;
-				else cpy = -1;
-				upd = 1;
-				break;
-			case SDLK_q:
-				if (cpy != -1)
-					memcpy(&(conf[sel]), &(conf[cpy]), sizeof(vnc_config));
-				cpy = -1;
-				upd = 1;
-				break;
-			case SDLK_a:
-				if (conf[sel].host[0]) {
-					memcpy(c, &(conf[sel]), sizeof(vnc_config));
-					ret=0;
-				} else {
+		while (SDL_PollEvent(&e)) {
+			if (e.type == SDL_QUIT)
+				safeexit();
+			if (e.type == SDL_KEYDOWN) {
+				switch (e.key.keysym.sym) {
+				case SDLK_b:
+					ret=1; break;
+				case SDLK_DOWN:
+				case SDLK_g:
+				case SDLK_k:
+					sel = (sel+1) % NUMCONF;
+					upd = 1;
+					break;
+				case SDLK_UP:
+				case SDLK_t:
+				case SDLK_i:
+					sel = (sel+NUMCONF-1) % NUMCONF;
+					upd = 1;
+					break;
+				case SDLK_x:
+					memset(&(conf[sel]), 0, sizeof(vnc_config));
+					upd = 1;
+					break;
+				case SDLK_y:
+					if (conf[sel].host[0])
+						cpy = sel;
+					else cpy = -1;
+					upd = 1;
+					break;
+				case SDLK_q:
+					if (cpy != -1)
+						memcpy(&(conf[sel]), &(conf[cpy]), sizeof(vnc_config));
+					cpy = -1;
+					upd = 1;
+					break;
+				case SDLK_a:
+					if (conf[sel].host[0]) {
+						memcpy(c, &(conf[sel]), sizeof(vnc_config));
+						ret=0;
+					} else {
+						editconfig(&(conf[sel]));
+					}
+					upd = 1;
+					break;
+				case SDLK_w:
 					editconfig(&(conf[sel]));
+					upd = 1;
+					break;
+				default:
+					break;
 				}
-				upd = 1;
-				break;
-			case SDLK_w:
-				editconfig(&(conf[sel]));
-				upd = 1;
-				break;
-			default:
-				break;
 			}
 		}
 	}
@@ -600,9 +842,10 @@ static void readkeymaps(char *cname) {
 		
 		fprintf(f,
 			"# mappings as per https://libvnc.github.io/doc/html/keysym_8h_source.html\n"
-			"# 0x0 = disconnect\n");
+			"# -0x100 = disconnect\n"
+			"# -0x1 ... -0x5 = mouse button 1-5\n");
 		for (i=0; buttons3ds[i].key != 0; ++i) {
-			fprintf(f,"%s\t0x%04lX\n", buttons3ds[i].name, buttons3ds[i].rfb_key);
+			fprintf(f,"%s\t0x%04X\n", buttons3ds[i].name, buttons3ds[i].rfb_key);
 		}
 		fclose(f);
 	}
@@ -614,12 +857,21 @@ int main() {
 	SDL_Event e;
 
 	osSetSpeedupEnable(1);
+
+	// init romfs file system
+	romfsInit();
+	atexit((void (*)())romfsExit);
+	
 	SDL_Init(SDL_INIT_VIDEO);
 	SDL_ShowCursor(SDL_DISABLE);
-	SDL_SetVideoMode(400,240,32, SDL_TOPSCR);
+	SDL_Surface *sdl=SDL_SetVideoMode(400,240,32, SDL_TOPSCR);
+	bgimg = IMG_Load("romfs:/background.png");
+
+	SDL_BlitSurface(bgimg, NULL, sdl, NULL);
+	SDL_Flip(sdl);
 	consoleInit(GFX_BOTTOM, NULL);
 
-	mkpath((char*)config_filename, false);
+	mkpath(config_filename, false);
 
 	// init 3DS buttons to their values
 	for (int i=0; buttons3ds[i].key!=0; ++i)
@@ -655,7 +907,7 @@ int main() {
 			hoststr};
 		int argc = sizeof(argv)/sizeof(char*);
 
-		readkeymaps(config.name);
+	//	readkeymaps(config.name);
 		rfbClientLog("Connecting to %s", hoststr);
 		if(!rfbInitClient(cl, &argc, argv))
 		{
@@ -663,28 +915,26 @@ int main() {
 		}
 		free(hoststr);
 
+		// clear mouse state
+		buttonMask = 0;
+
+		int ext=0;
 		while(cl) {
-			if(SDL_PollEvent(&e)) {
-				/*
-				handleSDLEvent() return 0 if user requested window close.
-				*/
+			// must be called once per frame to expire mouse button presses
+			uib_handle_tap_processing(NULL);
+
+			while (SDL_PollEvent(&e)) {
 				if(!handleSDLEvent(cl, &e)) {
 					rfbClientLog("Disconnecting");
+					ext=1;
 					break;
 				}
 			}
-			else {
-				i=WaitForMessage(cl,500);
-				if(i<0)
-				{
-					break;
-				}
-				if(i)
-					if(!HandleRFBServerMessage(cl))
-					{
-						break;
-					}
-			}
+			if (ext) break;
+			i=WaitForMessage(cl,500);
+			if(i<0) break; // error waiting
+			if(i && !HandleRFBServerMessage(cl))
+				break; // error handling
 			SDL_Flip(rfbClientGetClientData(cl, SDL_Init));
 		}
 		cleanup();

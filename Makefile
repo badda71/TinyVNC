@@ -38,11 +38,11 @@ DATA		:=	data
 INCLUDES	:=	$(SOURCES)
 GRAPHICS	:=	gfx
 GFXBUILD	:=	$(BUILD)
-#ROMFS		:=	romfs
+ROMFS		:=	romfs
 #GFXBUILD	:=	$(ROMFS)/gfx
 APP_TITLE := TinyVNC
 APP_DESCRIPTION := VNC Viewer for Nintendo 3DS
-APP_AUTHOR := badda71
+APP_AUTHOR := badda71 <me@badda.de>
 
 #---------------------------------------------------------------------------------
 # options for code generation
@@ -60,7 +60,7 @@ CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
 ASFLAGS	:=	-g $(ARCH)
 LDFLAGS	=	-specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
-LIBS	:= -lSDL -ljpeg -lz -lcitro3d -lctru -lm
+LIBS	:= -lSDL_image -lSDL -lpng -ljpeg -lz -lcitro3d -lctru -lm
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
