@@ -40,8 +40,8 @@ GRAPHICS	:=	gfx
 GFXBUILD	:=	$(BUILD)
 #ROMFS		:=	romfs
 #GFXBUILD	:=	$(ROMFS)/gfx
-APP_TITLE := Cemu3DS
-APP_DESCRIPTION := Wii U Emulator for Nintendo 3DS
+APP_TITLE := TinyVNC
+APP_DESCRIPTION := VNC Viewer for Nintendo 3DS
 APP_AUTHOR := badda71
 
 #---------------------------------------------------------------------------------
