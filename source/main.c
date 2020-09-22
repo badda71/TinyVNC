@@ -558,8 +558,8 @@ mkpath_err:
 
 static void printlist(int num) {
 	char buf[41];
-	printf(	"\x1b[2J\x1b[H\x1b[7m"
-			" Choose VNC Server                      ");
+	printf(	"\x1b[2J\x1b[H\x1b[46;30m"
+			" %-38.38s ", "TinyVNC v" VERSION " by badda71");
 	if (cpy!=-1) {
 		snprintf(buf,41,"L:paste '%s'                              ",conf[cpy].name);
 		printf("\x1b[29;0H%s", buf);
@@ -620,7 +620,7 @@ static int editconfig(vnc_config *c) {
 		gfxFlushBuffers();
 		gspWaitForVBlank();
 		if (upd) {
-			printf(	"\x1b[2J\x1b[H\x1b[7m"
+			printf(	"\x1b[2J\x1b[H\x1b[46;30m"
 					" Edit VNC Server                        ");
 			if (msg) printf(
 					"\x1b[28;0H%-.40s",msg);
@@ -979,7 +979,7 @@ int main() {
 		}
 		cleanup();
 
-		printf("\x1b[7mA:retry B:quit                          \x1b[0m");
+		printf("\x1b[46;30mA:retry B:quit                          \x1b[0m");
 		while (1) {
 			while (!SDL_PollEvent(&e)) SDL_Delay(20);
 			if (e.type == SDL_KEYDOWN) {

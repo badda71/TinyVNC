@@ -44,6 +44,16 @@ APP_TITLE := TinyVNC
 APP_DESCRIPTION := VNC Viewer for Nintendo 3DS
 APP_AUTHOR := badda71 <me@badda.de>
 
+VERSION_MAJOR :=	0
+VERSION_MINOR :=	9
+VERSION_MICRO :=	0
+
+ifeq ($(VERSION_MICRO),0)
+	VERSION	:=	$(VERSION_MAJOR).$(VERSION_MINOR)
+else
+	VERSION	:=	$(VERSION_MAJOR).$(VERSION_MINOR).$(VERSION_MICRO)
+endif
+
 #---------------------------------------------------------------------------------
 # options for code generation
 #---------------------------------------------------------------------------------
@@ -53,7 +63,7 @@ CFLAGS	:=	-g -Wall -O3 -mword-relocations \
 			-fomit-frame-pointer -ffunction-sections \
 			$(ARCH)
 
-CFLAGS	+=	$(INCLUDE) -DARM11 -D_3DS
+CFLAGS	+=	$(INCLUDE) -DARM11 -D_3DS -DVERSION=\"$(VERSION)\"
 
 CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
 
