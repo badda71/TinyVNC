@@ -583,6 +583,24 @@ static void saveconfig() {
 	}
 }
 
+#define DEFAULT_PORT 5900	// VNC default port
+
+static void checkset(char *name, char *nhost, int nport, char *nuser, char *ohost, int oport, char *ouser) {
+	int upd=0;
+	char buf[128], buf2[128];
+	if (name[0]) {
+		snprintf(buf, sizeof(buf), "%s%s%s%s%s",
+			ouser, ouser[0]?"@":"",
+			ohost, oport != DEFAULT_PORT?":":"", oport != DEFAULT_PORT?itoa(oport, buf2, 10):"");
+		if (strcmp(name, buf)==0) upd=1;
+	} else upd=1;
+	if (upd) {
+		snprintf(name, 128, "%s%s%s%s%s",
+			nuser, nuser[0]?"@":"",
+			nhost, nport != DEFAULT_PORT?":":"", nport != DEFAULT_PORT?itoa(nport, buf2, 10):"");
+	}
+}
+
 static int editconfig(vnc_config *c) {
 	int sel = 1;
 	const char *sep = "----------------------------------------";
@@ -592,9 +610,10 @@ static int editconfig(vnc_config *c) {
 	static SwkbdState swkbd;
 	SDL_Event e;
 	SwkbdButton button;
+	char *msg=NULL;
 
 	vnc_config nc = *c;
-	if (nc.port <= 0) nc.port = 5900; // VNC default port
+	if (nc.port <= 0) nc.port = DEFAULT_PORT;
 	int upd = 1;
 
 	while (ret==0) {
@@ -603,6 +622,8 @@ static int editconfig(vnc_config *c) {
 		if (upd) {
 			printf(	"\x1b[2J\x1b[H\x1b[7m"
 					" Edit VNC Server                        ");
+			if (msg) printf(
+					"\x1b[28;0H%-.40s",msg);
 			printf(	"\x1b[30;0H"
 					"A:edit B:cancel Y:OK                    "
 					"\x1b[0m");
@@ -639,7 +660,11 @@ static int editconfig(vnc_config *c) {
 				case SDLK_b:
 					ret=-1; break;
 				case SDLK_y:
-					ret=1; break;
+					// validate input
+					if (!nc.host[0]) {
+						msg = "Host name is required";
+					} else ret=1;
+					break;
 				case SDLK_DOWN:
 				case SDLK_g:
 				case SDLK_k:
@@ -671,9 +696,8 @@ static int editconfig(vnc_config *c) {
 						swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
 						button = swkbdInputText(&swkbd, input, sizeof(input));
 						if(button != SWKBD_BUTTON_LEFT) {
+							checkset(nc.name, input, nc.port, nc.user, nc.host, nc.port, nc.user);
 							strcpy(nc.host, input);
-							if (!nc.name[0])
-								strcpy(nc.name, input);
 						}
 						break;
 					case 2: // port
@@ -683,8 +707,13 @@ static int editconfig(vnc_config *c) {
 						swkbdSetInitialText(&swkbd, input);
 						//swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
 						button = swkbdInputText(&swkbd, input, 6);
-						if(button != SWKBD_BUTTON_LEFT)
-							nc.port = atoi(input);
+						if(button != SWKBD_BUTTON_LEFT) {
+							int po = atoi(input);
+							if (po < 0) po=0;
+							if (po > 0xffff) po=0xffff;
+							checkset(nc.name, nc.host, po, nc.user, nc.host, nc.port, nc.user);
+							nc.port = po;
+						}
 						break;
 					case 3: // username
 						swkbdInit(&swkbd, SWKBD_TYPE_QWERTY, 2, sizeof(input)-1);
@@ -692,8 +721,10 @@ static int editconfig(vnc_config *c) {
 						swkbdSetInitialText(&swkbd, nc.user);
 						swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
 						button = swkbdInputText(&swkbd, input, sizeof(input));
-						if(button != SWKBD_BUTTON_LEFT)
+						if(button != SWKBD_BUTTON_LEFT) {
+							checkset(nc.name, nc.host, nc.port, input, nc.host, nc.port, nc.user);
 							strcpy(nc.user, input);
+						}
 						break;
 					case 4: // password
 						swkbdInit(&swkbd, SWKBD_TYPE_WESTERN, 2, sizeof(input)-1);
@@ -733,10 +764,19 @@ static int getconfig(vnc_config *c) {
 
 	SDL_Event e;
 	int ret=-1;
-	int sel=0;
+	int i, sel=0;
 
 	SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY, SDL_DEFAULT_REPEAT_INTERVAL);
 	int upd = 1;
+
+	// check which sentry to select or jump into edit mode right away
+	for (i = 0; i<NUMCONF; ++i) {
+		if (conf[i].host[0]) break;
+	}
+	if (i<NUMCONF) sel=i;
+	else editconfig(&(conf[sel]));
+
+	// event loop
 	while (ret == -1) {
 		gfxFlushBuffers();
 		gspWaitForVBlank();
@@ -907,7 +947,7 @@ int main() {
 			hoststr};
 		int argc = sizeof(argv)/sizeof(char*);
 
-	//	readkeymaps(config.name);
+		readkeymaps(config.name);
 		rfbClientLog("Connecting to %s", hoststr);
 		if(!rfbInitClient(cl, &argc, argv))
 		{
