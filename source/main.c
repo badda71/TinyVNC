@@ -137,6 +137,7 @@ static rfbBool resize(rfbClient* client) {
 		flags |= ((width * 1000) / 400 > (height * 1000) / 240)? SDL_FITWIDTH : SDL_FITHEIGHT;
 	}
 	SDL_Surface* sdl = SDL_SetVideoMode(width, height, depth, flags);
+	SDL_ShowCursor(SDL_DISABLE);
 
 	if(!sdl) {
 		rfbClientErr("resize: error creating surface: %s", SDL_GetError());
@@ -145,7 +146,6 @@ static rfbBool resize(rfbClient* client) {
 	SDL_FillRect(sdl,NULL, 0x00000000);
 	SDL_Flip(sdl);
 
-	SDL_ShowCursor(SDL_DISABLE);
 	rfbClientSetClientData(client, SDL_Init, sdl);
 	client->width = sdl->pitch / (depth / 8);
 	client->frameBuffer=sdl->pixels;
@@ -583,21 +583,19 @@ static void saveconfig() {
 	}
 }
 
-#define DEFAULT_PORT 5900	// VNC default port
-
 static void checkset(char *name, char *nhost, int nport, char *nuser, char *ohost, int oport, char *ouser) {
 	int upd=0;
 	char buf[128], buf2[128];
 	if (name[0]) {
 		snprintf(buf, sizeof(buf), "%s%s%s%s%s",
 			ouser, ouser[0]?"@":"",
-			ohost, oport != DEFAULT_PORT?":":"", oport != DEFAULT_PORT?itoa(oport, buf2, 10):"");
+			ohost, oport != SERVER_PORT_OFFSET?":":"", oport != SERVER_PORT_OFFSET?itoa(oport, buf2, 10):"");
 		if (strcmp(name, buf)==0) upd=1;
 	} else upd=1;
 	if (upd) {
 		snprintf(name, 128, "%s%s%s%s%s",
 			nuser, nuser[0]?"@":"",
-			nhost, nport != DEFAULT_PORT?":":"", nport != DEFAULT_PORT?itoa(nport, buf2, 10):"");
+			nhost, nport != SERVER_PORT_OFFSET?":":"", nport != SERVER_PORT_OFFSET?itoa(nport, buf2, 10):"");
 	}
 }
 
@@ -613,7 +611,7 @@ static int editconfig(vnc_config *c) {
 	char *msg=NULL;
 
 	vnc_config nc = *c;
-	if (nc.port <= 0) nc.port = DEFAULT_PORT;
+	if (nc.port <= 0) nc.port = SERVER_PORT_OFFSET;
 	int upd = 1;
 
 	while (ret==0) {
@@ -882,10 +880,14 @@ static void readkeymaps(char *cname) {
 		
 		fprintf(f,
 			"# mappings as per https://libvnc.github.io/doc/html/keysym_8h_source.html\n"
+			
 			"# -0x100 = disconnect\n"
 			"# -0x1 ... -0x5 = mouse button 1-5\n");
 		for (i=0; buttons3ds[i].key != 0; ++i) {
-			fprintf(f,"%s\t0x%04X\n", buttons3ds[i].name, buttons3ds[i].rfb_key);
+			fprintf(f,"%s\t%s0x%04X\n",
+				buttons3ds[i].name,
+				buttons3ds[i].rfb_key < 0 ? "-" : "",
+				abs(buttons3ds[i].rfb_key));
 		}
 		fclose(f);
 	}
@@ -903,8 +905,8 @@ int main() {
 	atexit((void (*)())romfsExit);
 	
 	SDL_Init(SDL_INIT_VIDEO);
-	SDL_ShowCursor(SDL_DISABLE);
 	SDL_Surface *sdl=SDL_SetVideoMode(400,240,32, SDL_TOPSCR);
+	SDL_ShowCursor(SDL_DISABLE);
 	bgimg = IMG_Load("romfs:/background.png");
 
 	SDL_BlitSurface(bgimg, NULL, sdl, NULL);
@@ -957,7 +959,6 @@ int main() {
 
 		// clear mouse state
 		buttonMask = 0;
-
 		int ext=0;
 		while(cl) {
 			// must be called once per frame to expire mouse button presses
