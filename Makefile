@@ -31,21 +31,22 @@ include $(DEVKITARM)/3ds_rules
 #     - icon.png
 #     - <libctru folder>/default_icon.png
 #---------------------------------------------------------------------------------
-TARGET		:=	$(notdir $(CURDIR))
+TARGET		:=	TinyVNC
 BUILD		:=	build
-SOURCES		:=	$(shell find -L source -type d 2> /dev/null)
+SOURCES		:=	$(shell find -L src -type d 2> /dev/null)
 DATA		:=	data
+META		:=	meta
 INCLUDES	:=	$(SOURCES)
 GRAPHICS	:=	gfx
 GFXBUILD	:=	$(BUILD)
 ROMFS		:=	romfs
-#GFXBUILD	:=	$(ROMFS)/gfx
-APP_TITLE := TinyVNC
-APP_DESCRIPTION := VNC Viewer for Nintendo 3DS
-APP_AUTHOR := badda71 <me@badda.de>
+APP_TITLE	:=	TinyVNC
+APP_DESCRIPTION	:=	VNC Viewer for Nintendo 3DS
+APP_AUTHOR	:=	badda71 <me@badda.de>
+ICON		:=	icon.png
 
-VERSION_MAJOR :=	0
-VERSION_MINOR :=	9
+VERSION_MAJOR :=	1
+VERSION_MINOR :=	0
 VERSION_MICRO :=	0
 
 ifeq ($(VERSION_MICRO),0)
@@ -54,12 +55,38 @@ else
 	VERSION	:=	$(VERSION_MAJOR).$(VERSION_MINOR).$(VERSION_MICRO)
 endif
 
+# CIA Build options
+PRODUCT_CODE	:=	CTR-P-TVNC
+UNIQUE_ID		:=	0x0C2433
+CPU_SPEED		:=	804MHz
+ENABLE_L2_CACHE :=	true
+SYSTEM_MODE_EXT :=	124MB
+BANNER_AUDIO	:=	$(TOPDIR)/$(META)/audio.wav
+BANNER_IMAGE	:=	$(TOPDIR)/$(META)/banner.png
+LOGO			:=	$(TOPDIR)/$(META)/logo.lz11
+
+ifeq (, $(shell which gm))
+	MKICOPNG := cp -f
+else
+	MKICOPNG := gm convert -fill white -font "Picopixel-Standard"\
+		-draw "font-size 8;text 1,47 'v$(VERSION)';"
+endif
+
+
 #---------------------------------------------------------------------------------
 # options for code generation
 #---------------------------------------------------------------------------------
+ARCH		:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
+
+ifeq ($(MAKECMDGOALS),release)
+	MORECFLAGS := -O3
+else
+	MORECFLAGS := -O0 -ggdb
+endif
+
 ARCH	:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
 
-CFLAGS	:=	-g -Wall -O3 -mword-relocations \
+CFLAGS	:=	-g -Wall -O3 -mword-relocations -ffast-math \
 			-fomit-frame-pointer -ffunction-sections \
 			$(ARCH)
 
@@ -73,18 +100,53 @@ LDFLAGS	=	-specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 LIBS	:= -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lmpg123 -lSDL_image -lSDL -lpng -ljpeg -lz -lcitro3d -lctru -lm
 
 #---------------------------------------------------------------------------------
+# makerom options (cia/3ds build)
+#---------------------------------------------------------------------------------
+
+CATEGORY ?= Application
+USE_ON_SD ?= true
+MEMORY_TYPE ?= Application
+SYSTEM_MODE ?= 64MB
+SYSTEM_MODE_EXT ?= Legacy
+CPU_SPEED ?= 268MHz
+ENABLE_L2_CACHE ?= false
+
+COMMON_MAKEROM_FLAGS	:=	-rsf $(TOPDIR)/$(META)/template.rsf -target t -exefslogo -icon icon.icn -banner banner.bnr -major $(VERSION_MAJOR) -minor $(VERSION_MINOR) -micro $(VERSION_MICRO) -DAPP_TITLE="$(APP_TITLE)" -DAPP_PRODUCT_CODE="$(PRODUCT_CODE)" -DAPP_UNIQUE_ID="$(UNIQUE_ID)" -DAPP_SYSTEM_MODE="$(SYSTEM_MODE)" -DAPP_SYSTEM_MODE_EXT="$(SYSTEM_MODE_EXT)" -DAPP_CATEGORY="$(CATEGORY)" -DAPP_USE_ON_SD="$(USE_ON_SD)" -DAPP_MEMORY_TYPE="$(MEMORY_TYPE)" -DAPP_CPU_SPEED="$(CPU_SPEED)" -DAPP_ENABLE_L2_CACHE="$(ENABLE_L2_CACHE)" -DAPP_VERSION_MAJOR="$(VERSION_MAJOR)" -logo "$(LOGO)"
+
+ifneq ("$(wildcard $(TOPDIR)/$(ROMFS))","")
+	_3DSXTOOL_FLAGS += --romfs=$(TOPDIR)/$(ROMFS)
+	COMMON_MAKEROM_FLAGS += -DAPP_ROMFS="$(TOPDIR)/$(ROMFS)"
+endif
+
+ifeq ($(suffix $(BANNER_IMAGE)),.cgfx)
+	BANNER_IMAGE_ARG := -ci
+else
+	BANNER_IMAGE_ARG := -i
+endif
+
+ifeq ($(suffix $(BANNER_AUDIO)),.cwav)
+	BANNER_AUDIO_ARG := -ca
+else
+	BANNER_AUDIO_ARG := -a
+endif
+
+#---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
 # include and lib
 #---------------------------------------------------------------------------------
 LIBDIRS	:= $(CTRULIB) $(PORTLIBS)
 
-
 #---------------------------------------------------------------------------------
 # no real need to edit anything past this point unless you need to add additional
 # rules for different file extensions
 #---------------------------------------------------------------------------------
+
+LIBS	:=	$(addprefix -l,$(SUBLIBS)) $(LIBS)
+LIBDIRS	:=	$(addprefix $(TOPDIR)/,$(SUBLIBS)) $(LIBDIRS)
+
+##################################################################################
 ifneq ($(BUILD),$(notdir $(CURDIR)))
-#---------------------------------------------------------------------------------
+##################################################################################
 
 export OUTPUT	:=	$(CURDIR)/$(TARGET)
 export TOPDIR	:=	$(CURDIR)
@@ -130,7 +192,7 @@ export T3XHFILES		:=	$(patsubst %.t3s, $(BUILD)/%.h, $(GFXFILES))
 endif
 #---------------------------------------------------------------------------------
 
-export OFILES_SOURCES 	:=	$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
+export OFILES_SOURCES 	:=	$(CPPFILES:.cpp=.opp) $(CFILES:.c=.o) $(SFILES:.s=.o)
 
 export OFILES_BIN	:=	$(addsuffix .o,$(BINFILES)) \
 			$(PICAFILES:.v.pica=.shbin.o) $(SHLISTFILES:.shlist=.shbin.o) \
@@ -142,8 +204,8 @@ export HFILES	:=	$(PICAFILES:.v.pica=_shbin.h) $(SHLISTFILES:.shlist=_shbin.h) \
 			$(addsuffix .h,$(subst .,_,$(BINFILES))) \
 			$(GFXFILES:.t3s=.h)
 
-export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
-			$(foreach dir,$(LIBDIRS),-I$(dir)/include) \
+export INCLUDE	:=	$(foreach dir,$(LIBDIRS),-I$(dir)/include) \
+			$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
 			-I$(CURDIR)/$(BUILD)
 
 export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib)
@@ -160,7 +222,8 @@ ifeq ($(strip $(ICON)),)
 		endif
 	endif
 else
-	export APP_ICON := $(TOPDIR)/$(ICON)
+	export RAW_ICON := $(TOPDIR)/$(META)/$(ICON)
+	export APP_ICON := $(CURDIR)/$(BUILD)/$(ICON)
 endif
 
 ifeq ($(strip $(NO_SMDH)),)
@@ -171,11 +234,19 @@ ifneq ($(ROMFS),)
 	export _3DSXFLAGS += --romfs=$(CURDIR)/$(ROMFS)
 endif
 
-.PHONY: all clean
+SUBLIBS_CLEAN := $(SUBLIBS:%=clean-%)
+
+.PHONY: all clean dev release
+.PHONY: $(SUBLIBS)
+.PHONY: $(SUBLIBS_CLEAN)
 
 #---------------------------------------------------------------------------------
+dev: all
+release: all
+
 all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES)
-	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
+	@echo building $(APP_TITLE)
+	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile $(MAKECMDGOALS)
 
 $(BUILD):
 	@mkdir -p $@
@@ -191,34 +262,79 @@ $(DEPSDIR):
 endif
 
 #---------------------------------------------------------------------------------
-clean:
-	@echo clean ...
-	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf $(GFXBUILD)
+clean: $(SUBLIBS_CLEAN)
+	@echo cleaning $(TARGET) 
+	@rm -fr $(BUILD) $(TARGET).3dsx $(TARGET).cia $(TARGET).3ds $(OUTPUT).smdh $(TARGET).elf $(GFXBUILD)
+
+$(SUBLIBS_CLEAN):
+	@echo cleaning $(@:clean-%=%)
+	@$(MAKE) --no-print-directory -C $(@:clean-%=%) clean
 
 #---------------------------------------------------------------------------------
 $(GFXBUILD)/%.t3x	$(BUILD)/%.h	:	%.t3s
 #---------------------------------------------------------------------------------
-	@echo $(notdir $<)
+	@echo $<
 	@tex3ds -i $< -H $(BUILD)/$*.h -d $(DEPSDIR)/$*.d -o $(GFXBUILD)/$*.t3x
 
-#---------------------------------------------------------------------------------
-else
+##################################################################################
+else 
+##################################################################################
 
 #---------------------------------------------------------------------------------
 # main targets
 #---------------------------------------------------------------------------------
-$(OUTPUT).3dsx	:	$(OUTPUT).elf $(_3DSXDEPS)
+dev: all
+release: all
+
+all	:	$(OUTPUT).3dsx $(OUTPUT).cia $(OUTPUT).3ds
+
+$(SUBLIBS):
+	@$(MAKE) -C ../$@
+
+$(OUTPUT).3dsx	:	$(OUTPUT).elf $(_3DSXDEPS) $(TOPDIR)/$(ROMFS)
 
 $(OFILES_SOURCES) : $(HFILES)
 
-$(OUTPUT).elf	:	$(OFILES)
+$(OUTPUT).elf	:	$(OFILES) $(SUBLIBS)
+
+%.opp: %.cpp
+	@echo $(notdir $<)
+	@$(CXX) -MMD -MP -MF $(DEPSDIR)/$*.d $(CXXFLAGS) -c $< -o $@ $(ERROR_FILTER)
+
+#---------------------------------------------------------------------------------
+# cia/3ds generation targets
+#---------------------------------------------------------------------------------
+$(APP_ICON): $(RAW_ICON) $(TOPDIR)/Makefile
+	@echo -n generating $@ ...
+	@$(MKICOPNG) $< $@
+	@echo OK
+
+icon.icn: $(APP_ICON)
+	@echo -n generating $(notdir $@) ...
+	@bannertool makesmdh -s "$(APP_TITLE)" -l "$(APP_TITLE) - $(APP_DESCRIPTION)" -p "$(APP_AUTHOR)" -i $(APP_ICON) -o $@
+	@echo OK
+
+banner.bnr: $(BANNER_IMAGE) $(BANNER_AUDIO)
+	@echo -n generating $(notdir $@) ...
+	@bannertool makebanner $(BANNER_IMAGE_ARG) $(BANNER_IMAGE) $(BANNER_AUDIO_ARG) $(BANNER_AUDIO) -o $@
+	@echo OK
+
+$(OUTPUT).3ds: $(OUTPUT).elf banner.bnr icon.icn
+	@echo -n building $(notdir $(OUTPUT).3ds) ... 
+	@makerom -f cci -o $@ -elf $< -DAPP_ENCRYPTED=true $(COMMON_MAKEROM_FLAGS) 2> /dev/null
+	@echo OK
+
+$(OUTPUT).cia: $(OUTPUT).elf banner.bnr icon.icn
+	@echo -n building $(notdir $(OUTPUT).cia) ... 
+	@makerom -f cia -o $@ -elf $< -DAPP_ENCRYPTED=false $(COMMON_MAKEROM_FLAGS)
+	@echo OK
 
 #---------------------------------------------------------------------------------
 # you need a rule like this for each extension you use as binary data
 #---------------------------------------------------------------------------------
 %.bin.o	%_bin.h :	%.bin
 #---------------------------------------------------------------------------------
-	@echo $(notdir $<)
+	@echo $<
 	@$(bin2o)
 
 #---------------------------------------------------------------------------------
@@ -226,7 +342,7 @@ $(OUTPUT).elf	:	$(OFILES)
 #---------------------------------------------------------------------------------
 %.t3x.o	%_t3x.h :	%.t3x
 #---------------------------------------------------------------------------------
-	@echo $(notdir $<)
+	@echo $<
 	@$(bin2o)
 
 #---------------------------------------------------------------------------------
@@ -244,25 +360,25 @@ define shader-as
 endef
 
 %.shbin.o %_shbin.h : %.v.pica %.g.pica
-	@echo $(notdir $^)
+	@echo $<
 	@$(call shader-as,$^)
 
 %.shbin.o %_shbin.h : %.v.pica
-	@echo $(notdir $<)
+	@echo $<
 	@$(call shader-as,$<)
 
 %.shbin.o %_shbin.h : %.shlist
-	@echo $(notdir $<)
+	@echo $<
 	@$(call shader-as,$(foreach file,$(shell cat $<),$(dir $<)$(file)))
 
 #---------------------------------------------------------------------------------
 %.t3x	%.h	:	%.t3s
 #---------------------------------------------------------------------------------
-	@echo $(notdir $<)
+	@echo $<
 	@tex3ds -i $< -H $*.h -d $*.d -o $*.t3x
 
 -include $(DEPSDIR)/*.d
 
-#---------------------------------------------------------------------------------------
+##################################################################################
 endif
-#---------------------------------------------------------------------------------------
+##################################################################################
