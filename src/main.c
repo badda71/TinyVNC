@@ -754,7 +754,7 @@ static void readconfig() {
 			fseek(f, 0L, SEEK_END);
 			long int sz = ftell(f);
 			fseek(f, 0L, SEEK_SET);
-			if (sz != sizeof(vnc_config)) {
+			if (sz == sizeof(vnc_config_0_9) * NUMCONF) {
 				// read 0.9 config
 				vnc_config_0_9 c[NUMCONF] = {0};
 				fread((void*)c, sizeof(vnc_config_0_9), NUMCONF, f);
