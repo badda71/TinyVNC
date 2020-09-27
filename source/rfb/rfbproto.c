@@ -235,42 +235,24 @@ DefaultSupportedMessages(rfbClient* client)
     SetClient2Server(client, rfbKeyEvent);
     SetClient2Server(client, rfbPointerEvent);
     SetClient2Server(client, rfbClientCutText);
-    /* technically, we only care what we can *send* to the server
-     * but, we set Server2Client Just in case it ever becomes useful
-     */
-    SetServer2Client(client, rfbFramebufferUpdate);
-    SetServer2Client(client, rfbSetColourMapEntries);
-    SetServer2Client(client, rfbBell);
-    SetServer2Client(client, rfbServerCutText);
-}
-
-void
-DefaultSupportedMessagesUltraVNC(rfbClient* client)
-{
-    DefaultSupportedMessages(client);
+	// used to be UltraVNC only
     SetClient2Server(client, rfbFileTransfer);
     SetClient2Server(client, rfbSetScale);
     SetClient2Server(client, rfbSetServerInput);
     SetClient2Server(client, rfbSetSW);
     SetClient2Server(client, rfbTextChat);
     SetClient2Server(client, rfbPalmVNCSetScaleFactor);
-    /* technically, we only care what we can *send* to the server */
+
+	/* technically, we only care what we can *send* to the server
+     * but, we set Server2Client Just in case it ever becomes useful
+     */
+    SetServer2Client(client, rfbFramebufferUpdate);
+    SetServer2Client(client, rfbSetColourMapEntries);
+    SetServer2Client(client, rfbBell);
+    SetServer2Client(client, rfbServerCutText);
+	// used to be only for UltraVNC
     SetServer2Client(client, rfbResizeFrameBuffer);
     SetServer2Client(client, rfbPalmVNCReSizeFrameBuffer);
-    SetServer2Client(client, rfbFileTransfer);
-    SetServer2Client(client, rfbTextChat);
-}
-
-
-void
-DefaultSupportedMessagesTightVNC(rfbClient* client)
-{
-    DefaultSupportedMessages(client);
-    SetClient2Server(client, rfbFileTransfer);
-    SetClient2Server(client, rfbSetServerInput);
-    SetClient2Server(client, rfbSetSW);
-    /* SetClient2Server(client, rfbTextChat); */
-    /* technically, we only care what we can *send* to the server */
     SetServer2Client(client, rfbFileTransfer);
     SetServer2Client(client, rfbTextChat);
 }
@@ -928,26 +910,6 @@ InitialiseRFBConnection(rfbClient* client)
   /* fall back to viewer supported version */
   if ((major==rfbProtocolMajorVersion) && (minor>rfbProtocolMinorVersion))
     client->minor = rfbProtocolMinorVersion;
-
-  /* UltraVNC uses minor codes 4 and 6 for the server */
-  if (major==3 && (minor==4 || minor==6)) {
-      rfbClientLog("UltraVNC server detected, enabling UltraVNC specific messages\n",pv);
-      DefaultSupportedMessagesUltraVNC(client);
-  }
-
-  /* UltraVNC Single Click uses minor codes 14 and 16 for the server */
-  if (major==3 && (minor==14 || minor==16)) {
-     minor = minor - 10;
-     client->minor = minor;
-     rfbClientLog("UltraVNC Single Click server detected, enabling UltraVNC specific messages\n",pv);
-     DefaultSupportedMessagesUltraVNC(client);
-  }
-
-  /* TightVNC uses minor codes 5 for the server */
-  if (major==3 && minor==5) {
-      rfbClientLog("TightVNC server detected, enabling TightVNC specific messages\n",pv);
-      DefaultSupportedMessagesTightVNC(client);
-  }
 
   /* we do not support > RFB3.8 */
   if ((major==3 && minor>8) || major>3)
