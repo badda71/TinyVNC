@@ -1,8 +1,3 @@
-/**
- * @example SDLvncviewer.c
- * Once built, you can run it via `SDLvncviewer <remote-host>`.
- */
-
 #include <malloc.h>
 #include <stdio.h>
 #include <sys/stat.h>
@@ -11,6 +6,20 @@
 #include <SDL/SDL.h>
 #include <SDL/SDL_image.h>
 #include <rfb/rfbclient.h>
+#include "streamclient.h"
+
+#define SOC_ALIGN       0x1000
+#define SOC_BUFFERSIZE  0x100000
+#define NUMCONF 25
+
+typedef struct {
+	char name[128];
+	char host[128];
+	int port;
+	int audioport;
+	char user[128];
+	char pass[128];
+} vnc_config;
 
 struct { int sdl; int rfb; } buttonMapping[]={
 	{1, rfbButton1Mask},
@@ -21,11 +30,15 @@ struct { int sdl; int rfb; } buttonMapping[]={
 	{0,0}
 };
 
+const char *config_filename = "/3ds/TinyVNC/vnc.cfg";
+static vnc_config conf[NUMCONF] = {0};
+static int cpy = -1;
+static u32 *SOC_buffer = NULL;
 static int viewOnly=0, buttonMask=0;
 /* client's pointer position */
-int x,y;
-rfbClient* cl;
-SDL_Surface *bgimg;
+static int x,y;
+static rfbClient* cl;
+static SDL_Surface *bgimg;
 
 // default
 struct {
@@ -62,42 +75,7 @@ struct {
 
 	{NULL, 0,0,0}
 };
-/*
-// breath of the wild in cemu
-struct {
-	unsigned int key;
-	SDLKey sdl_key;
-	rfbKeySym rfb_key;
-} buttons3ds[] = {
-	{KEY_A, SDLK_a,	XK_space},
-	{KEY_B, SDLK_b, XK_e},
-	{KEY_X, SDLK_x, XK_q},
-	{KEY_Y, SDLK_y, XK_c},
-	{KEY_L, SDLK_q, XK_1},
-	{KEY_R, SDLK_w, XK_4},
-	{KEY_ZL, SDLK_1, XK_2},
-	{KEY_ZR, SDLK_2, XK_3},
-	{KEY_START, SDLK_RETURN, XK_plus},
-	{KEY_SELECT, SDLK_ESCAPE, XK_minus},
 
-	{KEY_CPAD_UP, SDLK_UP, XK_w}, // C-PAD
-	{KEY_CPAD_DOWN, SDLK_DOWN, XK_s},
-	{KEY_CPAD_LEFT, SDLK_LEFT, XK_a},
-	{KEY_CPAD_RIGHT, SDLK_RIGHT, XK_d},
-
-	{KEY_DUP, SDLK_t, XK_t},	// D-PAD
-	{KEY_DDOWN, SDLK_g, XK_g},
-	{KEY_DLEFT, SDLK_f, XK_f},
-	{KEY_DRIGHT, SDLK_h, XK_h},
-
-	{KEY_CSTICK_UP, SDLK_i, XK_KP_8}, // C-STICK
-	{KEY_CSTICK_DOWN, SDLK_k, XK_KP_5},
-	{KEY_CSTICK_LEFT, SDLK_j, XK_KP_4},
-	{KEY_CSTICK_RIGHT, SDLK_l, XK_KP_6},
-
-	{0,0,0}
-};
-*/
 static void vlog_citra(const char *format, va_list arg ) {
 	char buf[2000];
     vsnprintf(buf, 2000, format, arg);
@@ -518,23 +496,6 @@ static rfbCredential* get_credential(rfbClient* cl, int credentialType) {
 	return c;
 }
 
-#define SOC_ALIGN       0x1000
-#define SOC_BUFFERSIZE  0x100000
-static u32 *SOC_buffer = NULL;
-
-typedef struct {
-	char name[128];
-	char host[128];
-	int port;
-	char user[128];
-	char pass[128];
-} vnc_config;
-
-#define NUMCONF 25
-const char *config_filename = "/3ds/TinyVNC/vnc.cfg";
-vnc_config conf[NUMCONF] = {0};
-int cpy = -1;
-
 static int mkpath(const char* file_path1, int complete) {
 	char *file_path=strdup(file_path1);
 	char* p;
@@ -599,8 +560,18 @@ static void checkset(char *name, char *nhost, int nport, char *nuser, char *ohos
 	}
 }
 
+enum {
+	EDITCONF_NAME = 0,
+	EDITCONF_HOST,
+	EDITCONF_PORT,
+	EDITCONF_AUDIOPORT,	
+	EDITCONF_USER,
+	EDITCONF_PASS,
+	EDITCONF_END
+};
+
 static int editconfig(vnc_config *c) {
-	int sel = 1;
+	int sel = EDITCONF_HOST;
 	const char *sep = "----------------------------------------";
 	const char *pass = "****************************************";
 	char input[128];
@@ -626,28 +597,31 @@ static int editconfig(vnc_config *c) {
 					"A:edit B:cancel Y:OK                    "
 					"\x1b[0m");
 			printf(	"\x1b[3;0HName: ");
-			if (sel == 0) printf("\x1b[7m");
+			if (sel == EDITCONF_NAME) printf("\x1b[7m");
 			printf(	"%-34.34s", nc.name);
-			if (sel == 0) printf("\x1b[0m");
-
+			if (sel == EDITCONF_NAME) printf("\x1b[0m");
 			printf(	"\x1b[5;0H%s", sep);
 			printf(	"\x1b[7;0HHost: ");
-			if (sel == 1) printf("\x1b[7m");
+			if (sel == EDITCONF_HOST) printf("\x1b[7m");
 			printf(	"%-34.34s", nc.host);
-			if (sel == 1) printf("\x1b[0m");
+			if (sel == EDITCONF_HOST) printf("\x1b[0m");
 			printf(	"\x1b[9;0HPort: ");
-			if (sel == 2) printf("\x1b[7m");
+			if (sel == EDITCONF_PORT) printf("\x1b[7m");
 			printf(	"%-34d", nc.port);
-			if (sel == 2) printf("\x1b[0m");
-			printf(	"\x1b[11;0H%s", sep);
-			printf(	"\x1b[13;0HUsername: ");
-			if (sel == 3) printf("\x1b[7m");
+			if (sel == EDITCONF_PORT) printf("\x1b[0m");
+			printf(	"\x1b[11;0HAudio Stream Port: ");
+			if (sel == EDITCONF_AUDIOPORT) printf("\x1b[7m");
+			printf(	"%-21s", nc.audioport?itoa(nc.audioport,input,10):"");
+			if (sel == EDITCONF_AUDIOPORT) printf("\x1b[0m");
+			printf(	"\x1b[13;0H%s", sep);
+			printf(	"\x1b[15;0HUsername: ");
+			if (sel == EDITCONF_USER) printf("\x1b[7m");
 			printf(	"%-30.30s", nc.user);
-			if (sel == 3) printf("\x1b[0m");
-			printf(	"\x1b[15;0HPassword: ");
-			if (sel == 4) printf("\x1b[7m");
+			if (sel == EDITCONF_USER) printf("\x1b[0m");
+			printf(	"\x1b[17;0HPassword: ");
+			if (sel == EDITCONF_PASS) printf("\x1b[7m");
 			printf(	"%*.*s%*s", strlen(nc.pass), strlen(nc.pass), pass, 30-strlen(nc.pass), "");
-			if (sel == 4) printf("\x1b[0m");
+			if (sel == EDITCONF_PASS) printf("\x1b[0m");
 			SDL_Flip(SDL_GetVideoSurface());
 		}
 		while (SDL_PollEvent(&e)) {
@@ -666,19 +640,19 @@ static int editconfig(vnc_config *c) {
 				case SDLK_DOWN:
 				case SDLK_g:
 				case SDLK_k:
-					sel = (sel+1) % 5;
+					sel = (sel+1) % EDITCONF_END;
 					upd = 1;
 					break;
 				case SDLK_UP:
 				case SDLK_t:
 				case SDLK_i:
-					sel = (sel + 4) % 5;
+					sel = (sel + EDITCONF_END - 1) % EDITCONF_END;
 					upd = 1;
 					break;
 				case SDLK_a:
 					upd = 1;
 					switch (sel) {
-					case 0: // entry name
+					case EDITCONF_NAME: // entry name
 						swkbdInit(&swkbd, SWKBD_TYPE_QWERTY, 2, sizeof(input)-1);
 						swkbdSetHintText(&swkbd, "Entry Name");
 						swkbdSetInitialText(&swkbd, nc.name);
@@ -687,7 +661,7 @@ static int editconfig(vnc_config *c) {
 						if(button != SWKBD_BUTTON_LEFT)
 							strcpy(nc.name, input);
 						break;
-					case 1: // hostname
+					case EDITCONF_HOST: // hostname
 						swkbdInit(&swkbd, SWKBD_TYPE_QWERTY, 2, sizeof(input)-1);
 						swkbdSetHintText(&swkbd, "Host Name / IP address");
 						swkbdSetInitialText(&swkbd, nc.host);
@@ -698,7 +672,7 @@ static int editconfig(vnc_config *c) {
 							strcpy(nc.host, input);
 						}
 						break;
-					case 2: // port
+					case EDITCONF_PORT: // port
 						swkbdInit(&swkbd, SWKBD_TYPE_NUMPAD, 2, 5);
 						swkbdSetHintText(&swkbd, "Port");
 						sprintf(input, "%d", nc.port);
@@ -713,7 +687,21 @@ static int editconfig(vnc_config *c) {
 							nc.port = po;
 						}
 						break;
-					case 3: // username
+					case EDITCONF_AUDIOPORT: // port
+						swkbdInit(&swkbd, SWKBD_TYPE_NUMPAD, 2, 5);
+						swkbdSetHintText(&swkbd, "Audio Port");
+						sprintf(input, "%d", nc.audioport);
+						swkbdSetInitialText(&swkbd, input);
+						//swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
+						button = swkbdInputText(&swkbd, input, 6);
+						if(button != SWKBD_BUTTON_LEFT) {
+							int po = atoi(input);
+							if (po < 0) po=0;
+							if (po > 0xffff) po=0xffff;
+							nc.audioport = po;
+						}
+						break;
+					case EDITCONF_USER: // username
 						swkbdInit(&swkbd, SWKBD_TYPE_QWERTY, 2, sizeof(input)-1);
 						swkbdSetHintText(&swkbd, "Username");
 						swkbdSetInitialText(&swkbd, nc.user);
@@ -724,7 +712,7 @@ static int editconfig(vnc_config *c) {
 							strcpy(nc.user, input);
 						}
 						break;
-					case 4: // password
+					case EDITCONF_PASS: // password
 						swkbdInit(&swkbd, SWKBD_TYPE_WESTERN, 2, sizeof(input)-1);
 						swkbdSetHintText(&swkbd, "Password");
 						swkbdSetInitialText(&swkbd, nc.pass);
@@ -897,7 +885,7 @@ static void readkeymaps(char *cname) {
 int main() {
 	int i;
 	SDL_Event e;
-
+	char buf[256];
 	osSetSpeedupEnable(1);
 
 	// init romfs file system
@@ -923,7 +911,6 @@ int main() {
 	socInit(SOC_buffer, SOC_BUFFERSIZE);
 
 	rfbClientLog=rfbClientErr=log_citra;
-	char *hoststr = NULL;
 
 	while (1) {
 		// get config
@@ -935,8 +922,7 @@ int main() {
 		user1=config.user;
 		pass1=config.pass;
 		printf("\x1b[2J"); // clear screen
-		hoststr = malloc(strlen(config.host)+20);
-		sprintf(hoststr,"%s:%d",config.host, config.port);
+		snprintf(buf, sizeof(buf),"%s:%d",config.host, config.port);
 
 		cl=rfbGetClient(8,3,4);
 		cl->MallocFrameBuffer = resize;
@@ -946,24 +932,28 @@ int main() {
 
 		char *argv[] = {
 			"TinyVNC",
-			hoststr};
+			buf};
 		int argc = sizeof(argv)/sizeof(char*);
 
 		readkeymaps(config.name);
-		rfbClientLog("Connecting to %s", hoststr);
+		rfbClientLog("Connecting to %s", buf);
 		if(!rfbInitClient(cl, &argc, argv))
 		{
 			cl = NULL; /* rfbInitClient has already freed the client struct */
+		} else {
+			if (config.audioport) {
+				snprintf(buf, sizeof(buf),"http://%s:%d/",config.host, config.audioport);
+				start_stream(buf);
+			}
 		}
-		free(hoststr);
 
 		// clear mouse state
 		buttonMask = 0;
 		int ext=0;
 		while(cl) {
+			// handle events
 			// must be called once per frame to expire mouse button presses
 			uib_handle_tap_processing(NULL);
-
 			while (SDL_PollEvent(&e)) {
 				if(!handleSDLEvent(cl, &e)) {
 					rfbClientLog("Disconnecting");
@@ -972,12 +962,18 @@ int main() {
 				}
 			}
 			if (ext) break;
+			// audio stream
+			if (config.audioport)
+				run_stream();
+			// vnc integration
 			i=WaitForMessage(cl,500);
 			if(i<0) break; // error waiting
 			if(i && !HandleRFBServerMessage(cl))
 				break; // error handling
 			SDL_Flip(rfbClientGetClientData(cl, SDL_Init));
 		}
+		if (config.audioport)
+			stop_stream();
 		cleanup();
 
 		printf("\x1b[46;30mA:retry B:quit                          \x1b[0m");
