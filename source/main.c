@@ -21,6 +21,14 @@ typedef struct {
 	char pass[128];
 } vnc_config;
 
+typedef struct {
+	char name[128];
+	char host[128];
+	int port;
+	char user[128];
+	char pass[128];
+} vnc_config_0_9;
+
 struct { int sdl; int rfb; } buttonMapping[]={
 	{1, rfbButton1Mask},
 	{2, rfbButton2Mask},
@@ -737,16 +745,38 @@ static int editconfig(vnc_config *c) {
 	return -1;
 }
 
-static int getconfig(vnc_config *c) {
+static void readconfig() {
 	static int isinit = 0;
 	if (!isinit) {
 		FILE *f;
 		if((f=fopen(config_filename, "r"))!=NULL) {
-			fread((void*)conf, sizeof(vnc_config), NUMCONF, f);
+			// check correct filesize
+			fseek(f, 0L, SEEK_END);
+			long int sz = ftell(f);
+			fseek(f, 0L, SEEK_SET);
+			if (sz != sizeof(vnc_config)) {
+				// read 0.9 config
+				vnc_config_0_9 c[NUMCONF] = {0};
+				fread((void*)c, sizeof(vnc_config_0_9), NUMCONF, f);
+				for(int i=0; i<NUMCONF; ++i) {
+					strcpy(conf[i].name, c[i].name);
+					strcpy(conf[i].host, c[i].host);
+					conf[i].port = c[i].port;
+					strcpy(conf[i].user, c[i].user);
+					strcpy(conf[i].pass, c[i].pass);
+				}
+			} else {
+				// read current config
+				fread((void*)conf, sizeof(vnc_config), NUMCONF, f);
+			}
 			fclose(f);
 		}
 		isinit = 1;
 	}
+}
+
+static int getconfig(vnc_config *c) {
+	readconfig();
 
 	SDL_Event e;
 	int ret=-1;
