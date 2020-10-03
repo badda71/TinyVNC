@@ -106,6 +106,28 @@ void log_citra(const char *format, ...)
     va_end(argptr);
 }
 
+void log_msg(const char *format, ...)
+{
+    va_list argptr;
+    va_start(argptr, format);
+	vlog_citra(format, argptr);
+    va_end(argptr);
+}
+
+void log_err(const char *format, ...)
+{
+    char *p=malloc(strlen(format)+20);
+	sprintf(p,"\x1b[31m%s",format);
+	int i=strlen(p);
+	while (i && p[i-1]=='\n') p[--i]=0; // strip trailing newlines
+	strcat(p,"\x1b[0m");
+	va_list argptr;
+    va_start(argptr, format);
+	vlog_citra(p, argptr);
+    va_end(argptr);
+	free(p);
+}
+
 static rfbBool resize(rfbClient* client) {
 	int width=client->width;
 	int height=client->height;
@@ -598,7 +620,6 @@ static int editconfig(vnc_config *c) {
 	if (nc.port <= 0)
 		nc.port = SERVER_PORT_OFFSET;
 	
-log_citra("audiopath[0] %d",nc.audiopath[0]);
 	if (!nc.audiopath[0])
 		strcpy(nc.audiopath,"/");
 	int upd = 1;
@@ -969,7 +990,8 @@ int main() {
 	SOC_buffer = (u32*)memalign(SOC_ALIGN, SOC_BUFFERSIZE);
 	socInit(SOC_buffer, SOC_BUFFERSIZE);
 
-	rfbClientLog=rfbClientErr=log_citra;
+	rfbClientLog=log_msg;
+	rfbClientErr=log_err;
 
 	while (1) {
 		// get config

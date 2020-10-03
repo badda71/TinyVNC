@@ -5,6 +5,7 @@
 #include <string.h>
 #include <curl/curl.h>
 #include <mpg123.h>
+#include <rfb/rfbclient.h> // only for logging functions
 #include "httpstatuscodes_c.h"
 #include "streamclient.h"
 
@@ -44,7 +45,7 @@ static void sound_open(long rate, int channels, int encoding, int bufsize)
 {
 	struct mpg123_frameinfo mi;
 	mpg123_info(mh, &mi);
-	log_citra("Audio stream: mp3 %dkbps, %dHz, %d channels",mi.bitrate, rate, channels);
+	rfbClientLog("Audio stream: mp3 %dkbps, %dHz, %d channels",mi.bitrate, rate, channels);
 	sound_free();	
 	ndspSetOutputMode(channels == MPG123_STEREO ? NDSP_OUTPUT_STEREO : NDSP_OUTPUT_MONO);
 	ndspChnSetInterp(CHANNEL, NDSP_INTERP_POLYPHASE);
@@ -135,7 +136,7 @@ int start_stream(char *url, char *username, char *password)
 	if (sysversion[0] == 0)
 		osGetSystemVersionDataString(NULL, NULL, sysversion, sizeof(sysversion));
 
-	log_citra("Starting stream %s", url);
+	rfbClientLog("Starting stream %s", url);
 	ndspInit();
 	sound_free();
 
@@ -169,7 +170,7 @@ int start_stream(char *url, char *username, char *password)
 void stop_stream()
 {
 	if (mcurl != NULL) {
-		log_citra("Audio stream stopped");
+		rfbClientLog("Audio stream stopped");
 		curl_multi_remove_handle(mcurl, curl);
 		curl_easy_cleanup(curl);
 		curl_multi_cleanup(mcurl);
@@ -207,13 +208,13 @@ int run_stream()
 					// Get HTTP status code
 					curl_easy_getinfo(eh, CURLINFO_RESPONSE_CODE, &http_status_code);
 					if(http_status_code!=200) {
-						log_citra("audio stream HTTP error: %d %s", http_status_code, HttpStatus_reasonPhrase(http_status_code));
+						rfbClientErr("audio stream HTTP error: %d %s", http_status_code, HttpStatus_reasonPhrase(http_status_code));
 					}
 				} else if (return_code != CURLE_OK) {
 					if (mpg123_errcode(mh)) {
-						log_citra("mp3 error: %s", mpg123_strerror(mh));
+						rfbClientErr("mp3 error: %s", mpg123_strerror(mh));
 					} else {
-						log_citra("audio stream error: %s", curl_easy_strerror(return_code));
+						rfbClientErr("audio stream error: %s", curl_easy_strerror(return_code));
 					}
 				}
 			}
