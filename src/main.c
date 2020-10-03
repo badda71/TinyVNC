@@ -17,6 +17,7 @@ typedef struct {
 	char host[128];
 	int port;
 	int audioport;
+	char audiopath[128];
 	char user[128];
 	char pass[128];
 } vnc_config;
@@ -575,7 +576,8 @@ enum {
 	EDITCONF_NAME = 0,
 	EDITCONF_HOST,
 	EDITCONF_PORT,
-	EDITCONF_AUDIOPORT,	
+	EDITCONF_AUDIOPORT,
+	EDITCONF_AUDIOPATH,
 	EDITCONF_USER,
 	EDITCONF_PASS,
 	EDITCONF_END
@@ -593,7 +595,12 @@ static int editconfig(vnc_config *c) {
 	char *msg=NULL;
 
 	vnc_config nc = *c;
-	if (nc.port <= 0) nc.port = SERVER_PORT_OFFSET;
+	if (nc.port <= 0)
+		nc.port = SERVER_PORT_OFFSET;
+	
+log_citra("audiopath[0] %d",nc.audiopath[0]);
+	if (!nc.audiopath[0])
+		strcpy(nc.audiopath,"/");
 	int upd = 1;
 
 	while (ret==0) {
@@ -611,6 +618,7 @@ static int editconfig(vnc_config *c) {
 			if (sel == EDITCONF_NAME) printf("\x1b[7m");
 			printf(	"%-34.34s", nc.name);
 			if (sel == EDITCONF_NAME) printf("\x1b[0m");
+
 			printf(	"\x1b[5;0H%s", sep);
 			printf(	"\x1b[7;0HHost: ");
 			if (sel == EDITCONF_HOST) printf("\x1b[7m");
@@ -624,12 +632,17 @@ static int editconfig(vnc_config *c) {
 			if (sel == EDITCONF_AUDIOPORT) printf("\x1b[7m");
 			printf(	"%-21s", nc.audioport?itoa(nc.audioport,input,10):"");
 			if (sel == EDITCONF_AUDIOPORT) printf("\x1b[0m");
-			printf(	"\x1b[13;0H%s", sep);
-			printf(	"\x1b[15;0HUsername: ");
+			printf(	"\x1b[13;0HAudio Stream Path: ");
+			if (sel == EDITCONF_AUDIOPATH) printf("\x1b[7m");
+			printf(	"%-21s", nc.audiopath);
+			if (sel == EDITCONF_AUDIOPATH) printf("\x1b[0m");
+
+			printf(	"\x1b[15;0H%s", sep);
+			printf(	"\x1b[17;0HUsername: ");
 			if (sel == EDITCONF_USER) printf("\x1b[7m");
 			printf(	"%-30.30s", nc.user);
 			if (sel == EDITCONF_USER) printf("\x1b[0m");
-			printf(	"\x1b[17;0HPassword: ");
+			printf(	"\x1b[19;0HPassword: ");
 			if (sel == EDITCONF_PASS) printf("\x1b[7m");
 			printf(	"%*.*s%*s", strlen(nc.pass), strlen(nc.pass), pass, 30-strlen(nc.pass), "");
 			if (sel == EDITCONF_PASS) printf("\x1b[0m");
@@ -698,7 +711,7 @@ static int editconfig(vnc_config *c) {
 							nc.port = po;
 						}
 						break;
-					case EDITCONF_AUDIOPORT: // port
+					case EDITCONF_AUDIOPORT: // audio port
 						swkbdInit(&swkbd, SWKBD_TYPE_NUMPAD, 2, 5);
 						swkbdSetHintText(&swkbd, "Audio Port");
 						sprintf(input, "%d", nc.audioport);
@@ -710,6 +723,16 @@ static int editconfig(vnc_config *c) {
 							if (po < 0) po=0;
 							if (po > 0xffff) po=0xffff;
 							nc.audioport = po;
+						}
+						break;
+					case EDITCONF_AUDIOPATH: // audio path
+						swkbdInit(&swkbd, SWKBD_TYPE_QWERTY, 2, sizeof(input)-1);
+						swkbdSetHintText(&swkbd, "Audio Path");
+						swkbdSetInitialText(&swkbd, nc.audiopath);
+						swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
+						button = swkbdInputText(&swkbd, input, sizeof(input));
+						if(button != SWKBD_BUTTON_LEFT) {
+							snprintf(nc.audiopath, sizeof(nc.audiopath), "%s%s", input[0]=='/'?"":"/", input);
 						}
 						break;
 					case EDITCONF_USER: // username
@@ -921,7 +944,7 @@ static void readkeymaps(char *cname) {
 int main() {
 	int i;
 	SDL_Event e;
-	char buf[256];
+	char buf[512];
 	osSetSpeedupEnable(1);
 
 	// init romfs file system
@@ -978,7 +1001,8 @@ int main() {
 			cl = NULL; /* rfbInitClient has already freed the client struct */
 		} else {
 			if (config.audioport) {
-				snprintf(buf, sizeof(buf),"http://%s:%d/",config.host, config.audioport);
+				snprintf(buf, sizeof(buf),"http://%s:%d%s%s",config.host, config.audioport,
+					(config.audiopath[0]=='/'?"":"/"), config.audiopath);
 				start_stream(buf);
 			}
 		}
