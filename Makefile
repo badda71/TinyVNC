@@ -228,14 +228,11 @@ endif
 
 SUBLIBS_CLEAN := $(SUBLIBS:%=clean-%)
 
-.PHONY: all clean dev release
+.PHONY: all clean
 .PHONY: $(SUBLIBS)
 .PHONY: $(SUBLIBS_CLEAN)
 
 #---------------------------------------------------------------------------------
-dev: all
-release: all
-
 all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES)
 	@echo building $(APP_TITLE)
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile $(MAKECMDGOALS)
@@ -275,9 +272,6 @@ else
 #---------------------------------------------------------------------------------
 # main targets
 #---------------------------------------------------------------------------------
-dev: all
-release: all
-
 all	:	$(OUTPUT).3dsx $(OUTPUT).cia $(OUTPUT).3ds
 
 $(SUBLIBS):

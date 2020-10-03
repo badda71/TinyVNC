@@ -86,12 +86,15 @@ struct {
 
 static void vlog_citra(const char *format, va_list arg ) {
 	char buf[2000];
-    vsnprintf(buf, 2000, format, arg);
+//	static Handle mutex = 0;
+//	if (!mutex) svcCreateMutex(&mutex, false);
+	vsnprintf(buf, sizeof(buf), format, arg);
 	int i=strlen(buf);
+	while (i && buf[i-1]=='\n') buf[--i]=0; // strip trailing newlines
+//	svcWaitSynchronization(mutex, U64_MAX);
 	svcOutputDebugString(buf, i);
-	printf("%s",buf);
-	if (i && buf[i-1] != '\n')
-		printf("\n");
+	printf("%s\n",buf);
+//	svcReleaseMutex(mutex);
 }
 
 void log_citra(const char *format, ...)
@@ -780,17 +783,20 @@ static int getconfig(vnc_config *c) {
 
 	SDL_Event e;
 	int ret=-1;
-	int i, sel=0;
+	int i;
+	static int sel=0;
 
 	SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY, SDL_DEFAULT_REPEAT_INTERVAL);
 	int upd = 1;
 
 	// check which sentry to select or jump into edit mode right away
-	for (i = 0; i<NUMCONF; ++i) {
-		if (conf[i].host[0]) break;
+	if (!conf[sel].host[0]) {
+		for (i = 0; i<NUMCONF; ++i) {
+			if (conf[i].host[0]) break;
+		}
+		if (i<NUMCONF) sel=i;
+		else editconfig(&(conf[sel]));
 	}
-	if (i<NUMCONF) sel=i;
-	else editconfig(&(conf[sel]));
 
 	// event loop
 	while (ret == -1) {

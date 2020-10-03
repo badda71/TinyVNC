@@ -5,6 +5,7 @@
 #include <string.h>
 #include <curl/curl.h>
 #include <mpg123.h>
+#include "httpstatuscodes_c.h"
 #include "streamclient.h"
 
 #define BITS 8
@@ -52,7 +53,13 @@ static void sound_open(long rate, int channels, int encoding, int bufsize)
 		channels == MPG123_STEREO ? NDSP_FORMAT_STEREO_PCM16 : NDSP_FORMAT_MONO_PCM16);
 	ndsp_channels = MPG123_STEREO ? 2 : 1;
 
-	// set up sound buffer (~1 seconds of sound)
+	// set up sound buffer (~1 second of sound)
+	// This means, we will max buffer one second. If the server transmits data than we can play,
+	// we will discard the buffer contents and start playing the newly transmitted data.
+	// this means: 1. on a realtime stream, we will hava a maximum latency of 1 second,
+	// if the latency becomes bigger, we will skip forward one second
+	// 2. non-realtime streams are NOT playable because we do NOT choke the connection
+	// if data comes in too fast.
 	wavbufnr = (1 * rate * channels * 2) / bufsize;
 	ndsp_waveBuf = calloc(wavbufnr, sizeof(ndspWaveBuf));
 	for (int i=0;i < wavbufnr ;i++ )
@@ -65,6 +72,11 @@ static void sound_open(long rate, int channels, int encoding, int bufsize)
 static int sound_play(unsigned char *pbuf, size_t size)
 {
 //log_citra("enter %s",__func__);
+	if (ndsp_waveBuf[ndsp_activeBuf].status != NDSP_WBUF_DONE) {
+		ndspChnWaveBufClear(CHANNEL);
+		for (int i=0; i<wavbufnr; ++i)
+			ndsp_waveBuf[i].status = NDSP_WBUF_DONE;
+	}
 	// set and queue a new buffer
 	memcpy((void *)ndsp_waveBuf[ndsp_activeBuf].data_vaddr, pbuf, size);
 	ndsp_waveBuf[ndsp_activeBuf].nsamples = size / (ndsp_channels * sizeof(int16_t));
@@ -78,17 +90,6 @@ void sound_close()
 	sound_free();
 }
 
-static int stream_info_callback(void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow) {
-	// check if connection is choked and we can unchoke again
-
-/*	if (choked &&
-		ndsp_waveBuf[ndsp_activeBuf].status == NDSP_WBUF_DONE) {
-		choked=0;
-		curl_easy_pause(curl, CURLPAUSE_CONT);
-	}*/
-	return 0;
-}
-
 static size_t stream_write_callback(void *buffer, size_t size, size_t nmemb, void *userp) {
 //log_citra("enter %s",__func__);
 	int err;
@@ -98,20 +99,9 @@ static size_t stream_write_callback(void *buffer, size_t size, size_t nmemb, voi
 	int channels, encoding;
 	long rate;
 
-/*
-	if (choked || ndsp_waveBuf[ndsp_activeBuf].status != NDSP_WBUF_DONE) {
-		choked = 1;
-		return CURL_WRITEFUNC_PAUSE;
-	}
-*/
-	mpg123_feed(mh, (const unsigned char *)buffer, size * nmemb);
+	if (mpg123_feed(mh, (const unsigned char *)buffer, size * nmemb))
+		return 0;
 	do {
-/*
-		if (ndsp_waveBuf[ndsp_activeBuf].status != NDSP_WBUF_DONE) {
-			choked = 1;
-			return CURL_WRITEFUNC_PAUSE;
-		}
-*/
 		err = mpg123_decode_frame(mh, &frame_offset, &audio, &done);
 		switch(err) {
 		case MPG123_NEW_FORMAT:
@@ -123,13 +113,12 @@ static size_t stream_write_callback(void *buffer, size_t size, size_t nmemb, voi
 			sound_open(rate, channels, encoding, mpg123_outblock(mh));
 			break;
 		case MPG123_OK:
-			if (sound_play(audio, done) == CURL_WRITEFUNC_PAUSE)
-				return CURL_WRITEFUNC_PAUSE;
+			sound_play(audio, done);
 			break;
 		case MPG123_NEED_MORE:
 			break;
-		default:
-			break;
+		default: // we have an mpg error, stop the stream
+			return 0;
 		}
 	} while (done > 0);
 	return size * nmemb;
@@ -168,8 +157,8 @@ int start_stream(char *url)
 	curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, stream_write_callback);
-	curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-	curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, stream_info_callback);
+//	curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+//	curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, stream_info_callback);
 
 	mcurl = curl_multi_init();
 	curl_multi_add_handle(mcurl, curl);
@@ -181,8 +170,9 @@ void stop_stream()
 {
 	if (mcurl != NULL) {
 		log_citra("Audio stream stopped");
-		curl_multi_cleanup(mcurl);
+		curl_multi_remove_handle(mcurl, curl);
 		curl_easy_cleanup(curl);
+		curl_multi_cleanup(mcurl);
 		mpg123_close(mh);
 		mpg123_delete(mh);
 		mpg123_exit();
@@ -194,12 +184,41 @@ void stop_stream()
 
 int run_stream()
 {
+	CURLMsg *msg=NULL;
+	int msgs_left, return_code;
+	long int http_status_code;
+
 	if (still_running > 0) {
 		curl_multi_perform(mcurl, &still_running);
 	}
 
-	if (still_running <= 0 && mcurl != NULL) {
-		stop_stream();
+	// did our stream stop?
+	if (still_running <= 0) {
+		// fresh disconnect?
+		if (mcurl) {
+			// was there an error?
+			do { // get only the last message
+				msg = curl_multi_info_read(mcurl, &msgs_left);
+			} while (msgs_left);
+			if (msg && msg->msg == CURLMSG_DONE) {
+				CURL *eh = msg->easy_handle;
+				return_code = msg->data.result;
+				if (return_code == CURLE_HTTP_RETURNED_ERROR) {
+					// Get HTTP status code
+					curl_easy_getinfo(eh, CURLINFO_RESPONSE_CODE, &http_status_code);
+					if(http_status_code!=200) {
+						log_citra("audio stream HTTP error: %d %s", http_status_code, HttpStatus_reasonPhrase(http_status_code));
+					}
+				} else if (return_code != CURLE_OK) {
+					if (mpg123_errcode(mh)) {
+						log_citra("mp3 error: %s", mpg123_strerror(mh));
+					} else {
+						log_citra("audio stream error: %s", curl_easy_strerror(return_code));
+					}
+				}
+			}
+			stop_stream();
+		}
 		return 1;
 	}
 	return 0;
