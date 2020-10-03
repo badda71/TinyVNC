@@ -128,7 +128,7 @@ static size_t stream_write_callback(void *buffer, size_t size, size_t nmemb, voi
 #define HTTP_TIMEOUT_SEC 15
 #define HTTP_TIMEOUT_NS ((u64) HTTP_TIMEOUT_SEC * 1000000000)
 
-int start_stream(char *url)
+int start_stream(char *url, char *username, char *password)
 {
 	static char sysversion[32]={0};
 
@@ -157,8 +157,8 @@ int start_stream(char *url)
 	curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, stream_write_callback);
-//	curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-//	curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, stream_info_callback);
+	if (username) curl_easy_setopt(curl, CURLOPT_USERNAME, username);
+	if (password) curl_easy_setopt(curl, CURLOPT_PASSWORD, password);
 
 	mcurl = curl_multi_init();
 	curl_multi_add_handle(mcurl, curl);

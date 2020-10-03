@@ -1003,7 +1003,7 @@ int main() {
 			if (config.audioport) {
 				snprintf(buf, sizeof(buf),"http://%s:%d%s%s",config.host, config.audioport,
 					(config.audiopath[0]=='/'?"":"/"), config.audiopath);
-				start_stream(buf);
+				start_stream(buf, config.user, config.pass);
 			}
 		}
 
