@@ -52,37 +52,36 @@ static SDL_Surface *bgimg;
 // default
 struct {
 	char *name;
-	unsigned int key;
 	SDLKey sdl_key;
 	int rfb_key;
 } buttons3ds[] = {
-	{"A", KEY_A, SDLK_a,	XK_a},
-	{"B", KEY_B, SDLK_b, XK_b},
-	{"X", KEY_X, SDLK_x, XK_x},
-	{"Y", KEY_Y, SDLK_y, XK_y},
-	{"L", KEY_L, SDLK_q, XK_q},
-	{"R", KEY_R, SDLK_w, XK_w},
-	{"ZL", KEY_ZL, SDLK_1, XK_1},
-	{"ZR", KEY_ZR, SDLK_2, XK_2},
-	{"START", KEY_START, SDLK_RETURN, -0x100}, // disconnect
-	{"SELECT", KEY_SELECT, SDLK_ESCAPE, XK_Escape},
+	{"A", SDLK_a, XK_a},
+	{"B", SDLK_b, XK_b},
+	{"X", SDLK_x, XK_x},
+	{"Y", SDLK_y, XK_y},
+	{"L", SDLK_q, XK_q},
+	{"R", SDLK_w, XK_w},
+	{"ZL", SDLK_1, XK_1},
+	{"ZR", SDLK_2, XK_2},
+	{"START", SDLK_RETURN, -0x100}, // disconnect
+	{"SELECT", SDLK_ESCAPE, XK_Escape},
 
-	{"CPAD_UP", KEY_CPAD_UP, SDLK_UP, XK_Up}, // C-PAD
-	{"CPAD_DOWN", KEY_CPAD_DOWN, SDLK_DOWN, XK_Down},
-	{"CPAD_LEFT", KEY_CPAD_LEFT, SDLK_LEFT, XK_Left},
-	{"CPAD_RIGHT", KEY_CPAD_RIGHT, SDLK_RIGHT, XK_Right},
+	{"CPAD_UP", SDLK_UP, XK_Up}, // C-PAD
+	{"CPAD_DOWN", SDLK_DOWN, XK_Down},
+	{"CPAD_LEFT", SDLK_LEFT, XK_Left},
+	{"CPAD_RIGHT", SDLK_RIGHT, XK_Right},
 
-	{"DPAD_UP", KEY_DUP, SDLK_t, XK_t},	// D-PAD
-	{"DPAD_DOWN", KEY_DDOWN, SDLK_g, XK_g},
-	{"DPAD_LEFT", KEY_DLEFT, SDLK_f, XK_f},
-	{"DPAD_RIGHT", KEY_DRIGHT, SDLK_h, XK_h},
+	{"DPAD_UP", SDLK_t, XK_t},	// D-PAD
+	{"DPAD_DOWN", SDLK_g, XK_g},
+	{"DPAD_LEFT", SDLK_f, XK_f},
+	{"DPAD_RIGHT", SDLK_h, XK_h},
 
-	{"CSTCK_UP", KEY_CSTICK_UP, SDLK_i, XK_i}, // C-STICK
-	{"CSTCK_DOWN", KEY_CSTICK_DOWN, SDLK_k, XK_k},
-	{"CSTCK_LEFT", KEY_CSTICK_LEFT, SDLK_j, XK_j},
-	{"CSTCK_RIGHT", KEY_CSTICK_RIGHT, SDLK_l, XK_l},
+	{"CSTCK_UP", SDLK_i, XK_i}, // C-STICK
+	{"CSTCK_DOWN", SDLK_k, XK_k},
+	{"CSTCK_LEFT", SDLK_j, XK_j},
+	{"CSTCK_RIGHT", SDLK_l, XK_l},
 
-	{NULL, 0,0,0}
+	{NULL,0,0}
 };
 
 static void vlog_citra(const char *format, va_list arg ) {
@@ -182,8 +181,7 @@ static rfbBool resize(rfbClient* client) {
 static int SDL_key2rfbKeySym(SDL_KeyboardEvent* e) {
 	SDLKey sym = e->keysym.sym;
 
-	// init 3DS buttons to their values
-	for (int i=0; buttons3ds[i].key!=0; ++i)
+	for (int i=0; buttons3ds[i].sdl_key!=0; ++i)
 		if (sym == buttons3ds[i].sdl_key) return buttons3ds[i].rfb_key;
 	return 0;
 }
@@ -439,10 +437,138 @@ int uib_handle_tap_processing(SDL_Event *e) {
 	return 1;
 }
 
+static int keydown = 0;
+static u32 key_ts = 0;
+static int repeat_state = 0;
+
+static void make_key_event_norepeat(SDL_Event *e, int sym, int pressed)
+{
+	if (pressed) {
+		e->type = SDL_KEYDOWN;
+		e->key.state = SDL_PRESSED;
+	} else {
+		e->type = SDL_KEYUP;
+		e->key.state = SDL_RELEASED;
+	}
+	e->key.keysym.sym = e->key.keysym.unicode = sym;
+	e->key.keysym.mod = e->key.keysym.scancode = 0;
+}
+
+static void make_key_event(SDL_Event *e, int sym, int pressed)
+{
+	if (pressed) {
+		keydown = sym;
+		key_ts = SDL_GetTicks();
+		repeat_state = 0;
+	} else {
+		keydown = repeat_state = 0;
+	}
+	make_key_event_norepeat(e, sym, pressed);
+}
+
+static void push_key_event(int sym, int pressed) {
+	SDL_Event e;
+	make_key_event(&e, sym, pressed);
+	SDL_PushEvent(&e);
+}
+
+static void push_key_event_norepeat(int sym, int pressed) {
+	SDL_Event e;
+	make_key_event_norepeat(&e, sym, pressed);
+	SDL_PushEvent(&e);
+}
+
+static void checkKeyRepeat() {
+	int send=0;
+	if (!keydown) return;
+	u32 ts=SDL_GetTicks();
+	switch (repeat_state) {
+	case 0:
+		if (ts-key_ts > SDL_DEFAULT_REPEAT_DELAY) {
+			++repeat_state;
+			send=-1;
+			key_ts=ts;
+		}
+		break;
+	case 1:
+		if (ts - key_ts > SDL_DEFAULT_REPEAT_INTERVAL / 2) {
+			++repeat_state;
+			send=1;
+			key_ts=ts;
+		}
+		break;
+	case 2:
+		if (ts - key_ts > SDL_DEFAULT_REPEAT_INTERVAL / 2) {
+			--repeat_state;
+			send=-1;
+			key_ts=ts;
+		}
+		break;
+	}
+	if (send) {
+		push_key_event_norepeat(keydown, send == -1 ? 0 : 1);
+	}
+}
+
+#define THRESHOLD 16384
+static void map_joy_to_key(SDL_Event *e)
+{
+	static int old_status = 0;
+	static int old_dp_status = 0;
+	int i1,i2, status;
+
+	static int buttonkeys[14]={
+		SDLK_RETURN, SDLK_a, SDLK_b, SDLK_x, SDLK_y,
+		SDLK_q, SDLK_w, SDLK_ESCAPE, SDLK_g, SDLK_f,
+		SDLK_t, SDLK_h, SDLK_1, SDLK_2};
+
+	static int axiskeys[8]={
+		SDLK_RIGHT, SDLK_LEFT, SDLK_DOWN, SDLK_UP,
+		SDLK_l, SDLK_j, SDLK_k, SDLK_i};
+	
+	static int hatkeys[4]={
+		SDLK_t, SDLK_h, SDLK_g, SDLK_f};
+
+	switch (e->type) {
+	case SDL_JOYHATMOTION:
+		status = e->jhat.value;
+		if (status != old_dp_status) {
+			for (i1 = 0; i1 < 4; ++i1) {
+				i2 = 1 << i1;
+				if ((status & i2) != (old_dp_status & i2))
+					push_key_event(hatkeys[i1], status & i2);
+			}
+			old_dp_status = status;
+		}
+		break;
+	case SDL_JOYBUTTONDOWN:
+	case SDL_JOYBUTTONUP:
+		i1 = e->type == SDL_JOYBUTTONDOWN ? 1 : 0;
+		make_key_event(e, buttonkeys[e->jbutton.button], i1); break;
+		break;
+	case SDL_JOYAXISMOTION:
+		i1 = 3 << (e->jaxis.axis * 2);
+		i2 = (e->jaxis.value > THRESHOLD ? 1 : (e->jaxis.value < -THRESHOLD ? 2 : 0)) << (e->jaxis.axis * 2);
+		status = (old_status & (~i1)) | i2;
+		if (old_status != status) {
+			for (i1 = 0; i1 < 8; ++i1) {
+				i2 = 1 << i1;
+				if ((status & i2) != (old_status & i2))
+					push_key_event(axiskeys[i1], status & i2);
+			}
+			old_status = status;
+		}
+		break;
+	default:
+		break;
+	}
+}
+
 static void safeexit();
 
 static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 {
+	map_joy_to_key(e);
 	switch(e->type) {
 	case SDL_MOUSEBUTTONUP:
 	case SDL_MOUSEBUTTONDOWN:
@@ -499,8 +625,9 @@ static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 		break;
 	case SDL_QUIT:
 		safeexit();
+		break;
 	default:
-		rfbClientLog("ignore SDL event: 0x%x", e->type);
+		break;
 	}
 	return TRUE;
 }
@@ -672,6 +799,7 @@ static int editconfig(vnc_config *c) {
 		while (SDL_PollEvent(&e)) {
 			if (e.type == SDL_QUIT)
 				safeexit();
+			map_joy_to_key(&e);
 			if (e.type == SDL_KEYDOWN) {
 				switch (e.key.keysym.sym) {
 				case SDLK_b:
@@ -784,6 +912,7 @@ static int editconfig(vnc_config *c) {
 				}
 			}
 		}
+		checkKeyRepeat();
 	}
 	if (ret == 1) {
 		memcpy(c, &nc, sizeof(nc));
@@ -854,6 +983,7 @@ static int getconfig(vnc_config *c) {
 		while (SDL_PollEvent(&e)) {
 			if (e.type == SDL_QUIT)
 				safeexit();
+			map_joy_to_key(&e);
 			if (e.type == SDL_KEYDOWN) {
 				switch (e.key.keysym.sym) {
 				case SDLK_b:
@@ -904,6 +1034,7 @@ static int getconfig(vnc_config *c) {
 				}
 			}
 		}
+		checkKeyRepeat();
 	}
 	SDL_EnableKeyRepeat(0,0);
 	cpy = -1;
@@ -935,7 +1066,7 @@ static void readkeymaps(char *cname) {
 		rfbClientLog("Reading keymap from %s", fn);
 		while (fgets(buf, BUFSIZE, f)) {
 			if (buf[0]=='#' || sscanf(buf,"%s %x\n",name, &x) != 2) continue;
-			for (i=0; buttons3ds[i].key!=0; ++i) {
+			for (i=0; buttons3ds[i].sdl_key!=0; ++i) {
 				if (strcmp(buttons3ds[i].name, name)==0) {
 					buttons3ds[i].rfb_key=x;
 					break;
@@ -951,7 +1082,7 @@ static void readkeymaps(char *cname) {
 			
 			"# -0x100 = disconnect\n"
 			"# -0x1 ... -0x5 = mouse button 1-5\n");
-		for (i=0; buttons3ds[i].key != 0; ++i) {
+		for (i=0; buttons3ds[i].sdl_key != 0; ++i) {
 			fprintf(f,"%s\t%s0x%04X\n",
 				buttons3ds[i].name,
 				buttons3ds[i].rfb_key < 0 ? "-" : "",
@@ -972,7 +1103,9 @@ int main() {
 	romfsInit();
 	atexit((void (*)())romfsExit);
 	
-	SDL_Init(SDL_INIT_VIDEO);
+	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK);
+	SDL_JoystickOpen(0);
+
 	SDL_Surface *sdl=SDL_SetVideoMode(400,240,32, SDL_TOPSCR);
 	SDL_ShowCursor(SDL_DISABLE);
 	bgimg = IMG_Load("romfs:/background.png");
@@ -982,10 +1115,6 @@ int main() {
 	consoleInit(GFX_BOTTOM, NULL);
 
 	mkpath(config_filename, false);
-
-	// init 3DS buttons to their values
-	for (int i=0; buttons3ds[i].key!=0; ++i)
-		SDL_N3DSKeyBind(buttons3ds[i].key, buttons3ds[i].sdl_key);
 
 	SOC_buffer = (u32*)memalign(SOC_ALIGN, SOC_BUFFERSIZE);
 	socInit(SOC_buffer, SOC_BUFFERSIZE);
@@ -1061,6 +1190,7 @@ int main() {
 		printf("\x1b[46;30mA:retry B:quit                          \x1b[0m");
 		while (1) {
 			while (!SDL_PollEvent(&e)) SDL_Delay(20);
+			map_joy_to_key(&e);
 			if (e.type == SDL_KEYDOWN) {
 				if (e.key.keysym.sym == SDLK_a)
 					break;
