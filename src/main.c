@@ -517,10 +517,9 @@ static void map_joy_to_key(SDL_Event *e)
 	static int old_dp_status = 0;
 	int i1,i2, status;
 
-	static int buttonkeys[14]={
+	static int buttonkeys[10]={
 		SDLK_RETURN, SDLK_a, SDLK_b, SDLK_x, SDLK_y,
-		SDLK_q, SDLK_w, SDLK_ESCAPE, SDLK_g, SDLK_f,
-		SDLK_t, SDLK_h, SDLK_1, SDLK_2};
+		SDLK_q, SDLK_w, SDLK_ESCAPE, SDLK_1, SDLK_2};
 
 	static int axiskeys[8]={
 		SDLK_RIGHT, SDLK_LEFT, SDLK_DOWN, SDLK_UP,

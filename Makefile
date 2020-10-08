@@ -89,7 +89,9 @@ CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
 ASFLAGS	:=	-g $(ARCH)
 LDFLAGS	=	-specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
-LIBS	:= -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lmpg123 -lSDL_image -lSDL -lpng -ljpeg -lz -lcitro3d -lctru -lm
+SUBLIBS	:=	LIBSDL
+
+LIBS	:= -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lmpg123 -lSDL_image -lpng -ljpeg -lz -lcitro3d -lctru -lm
 
 #---------------------------------------------------------------------------------
 # makerom options (cia/3ds build)
@@ -133,7 +135,7 @@ LIBDIRS	:= $(CTRULIB) $(PORTLIBS)
 # rules for different file extensions
 #---------------------------------------------------------------------------------
 
-LIBS	:=	$(addprefix -l,$(SUBLIBS)) $(LIBS)
+LIBS	:=	$(addprefix -l,$(SUBLIBS)) $(LIBS) $(addprefix -l,$(SUBLIBS))
 LIBDIRS	:=	$(addprefix $(TOPDIR)/,$(SUBLIBS)) $(LIBDIRS)
 
 ##################################################################################
