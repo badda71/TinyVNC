@@ -1,3 +1,11 @@
+/*
+ * TinyVNC - A VNC client for Nintendo 3DS
+ *
+ * main.c - Main functionalities
+ *
+ * Copyright 2020 Sebastian Weber
+ */
+
 #include <malloc.h>
 #include <stdio.h>
 #include <sys/stat.h>
@@ -7,6 +15,7 @@
 #include <SDL/SDL_image.h>
 #include <rfb/rfbclient.h>
 #include "streamclient.h"
+#include "uibottom.h"
 
 #define SOC_ALIGN       0x1000
 #define SOC_BUFFERSIZE  0x100000
@@ -48,6 +57,7 @@ static int viewOnly=0, buttonMask=0;
 static int x,y;
 static rfbClient* cl;
 static SDL_Surface *bgimg;
+static SDL_Surface* sdl=NULL;
 
 // default
 struct {
@@ -93,7 +103,8 @@ static void vlog_citra(const char *format, va_list arg ) {
 	while (i && buf[i-1]=='\n') buf[--i]=0; // strip trailing newlines
 //	svcWaitSynchronization(mutex, U64_MAX);
 	svcOutputDebugString(buf, i);
-	printf("%s\n",buf);
+	uib_printf("%s\n",buf);
+	uib_update();
 //	svcReleaseMutex(mutex);
 }
 
@@ -115,16 +126,12 @@ void log_msg(const char *format, ...)
 
 void log_err(const char *format, ...)
 {
-    char *p=malloc(strlen(format)+20);
-	sprintf(p,"\x1b[31m%s",format);
-	int i=strlen(p);
-	while (i && p[i-1]=='\n') p[--i]=0; // strip trailing newlines
-	strcat(p,"\x1b[0m");
 	va_list argptr;
     va_start(argptr, format);
-	vlog_citra(p, argptr);
+	uib_set_colors(COL_RED, COL_BLACK);
+	vlog_citra(format, argptr);
+	uib_reset_colors();
     va_end(argptr);
-	free(p);
 }
 
 static rfbBool resize(rfbClient* client) {
@@ -147,7 +154,7 @@ static rfbBool resize(rfbClient* client) {
 	if (width > 400 || height > 240) {
 		flags |= ((width * 1000) / 400 > (height * 1000) / 240)? SDL_FITWIDTH : SDL_FITHEIGHT;
 	}
-	SDL_Surface* sdl = SDL_SetVideoMode(width, height, depth, flags);
+	sdl = SDL_SetVideoMode(width, height, depth, flags);
 	SDL_ShowCursor(SDL_DISABLE);
 
 	if(!sdl) {
@@ -677,23 +684,30 @@ mkpath_err:
 	return 1;
 }
 
+#define HEADERCOL COL_MAKE(0x47, 0x80, 0x82)
+
 static void printlist(int num) {
 	char buf[41];
-	printf(	"\x1b[2J\x1b[H\x1b[46;30m"
-			" %-38.38s ", "TinyVNC v" VERSION " by badda71");
+	
+	uib_clear();
+	uib_set_colors(COL_BLACK, HEADERCOL);
+	
+	uib_printf(	" %-38.38s ", "TinyVNC v" VERSION " by badda71");
 	if (cpy!=-1) {
 		snprintf(buf,41,"L:paste '%s'                              ",conf[cpy].name);
-		printf("\x1b[29;0H%s", buf);
+		uib_set_position(0,28);
+		uib_printf("%s", buf);
 	}
-	printf(	"\x1b[30;0H"
-			"A:select B:quit X:delete Y:copy R:edit  "
-			"\x1b[0m");
+	uib_set_position(0,29);
+	uib_printf(	"A:select B:quit X:delete Y:copy R:edit  ");
+	uib_reset_colors();
 	for (int i=0;i<NUMCONF; ++i) {
-		printf("\x1b[%d;0H", i+3);
-		if (i==num) printf("\x1b[7m");
-		printf("%-40.40s", conf[i].host[0]?conf[i].name:"-");
-		if (i==num) printf("\x1b[0m");
+		uib_set_position(0,i+2);
+		if (i==num) uib_invert_colors();
+		uib_printf("%-40.40s", conf[i].host[0]?conf[i].name:"-");
+		if (i==num) uib_reset_colors();
 	}
+	uib_update();
 }
 
 static void saveconfig() {
@@ -741,6 +755,7 @@ static int editconfig(vnc_config *c) {
 	SDL_Event e;
 	SwkbdButton button;
 	char *msg=NULL;
+	int showmsg = 0, msg_state=0;
 
 	vnc_config nc = *c;
 	if (nc.port <= 0)
@@ -751,50 +766,71 @@ static int editconfig(vnc_config *c) {
 	int upd = 1;
 
 	while (ret==0) {
-		gfxFlushBuffers();
-		gspWaitForVBlank();
-		if (upd) {
-			printf(	"\x1b[2J\x1b[H\x1b[46;30m"
-					" Edit VNC Server                        ");
-			if (msg) printf(
-					"\x1b[28;0H%-.40s",msg);
-			printf(	"\x1b[30;0H"
-					"A:edit B:cancel Y:OK                    "
-					"\x1b[0m");
-			printf(	"\x1b[3;0HName: ");
-			if (sel == EDITCONF_NAME) printf("\x1b[7m");
-			printf(	"%-34.34s", nc.name);
-			if (sel == EDITCONF_NAME) printf("\x1b[0m");
+		// blink message
+		int old_state=showmsg;
+		if (msg) {
+			if (msg_state > 32) showmsg = 1;
+			else {
+				++msg_state;
+				showmsg= (msg_state / 4) % 2 == 0 ? 1 : 0;
+			}
+		} else msg_state=0;
+		if (upd || showmsg != old_state) {
+			uib_clear();
+			uib_set_colors(COL_BLACK, HEADERCOL);
+			uib_printf(	" Edit VNC Server                        ");
+			uib_set_position(0,27);
+			if (msg && showmsg) {
+				uib_printf("%-.40s",msg);
+			}
+			uib_set_position(0,29);
+			uib_printf(	"A:edit B:cancel Y:OK                    ");
+			uib_reset_colors();
 
-			printf(	"\x1b[5;0H%s", sep);
-			printf(	"\x1b[7;0HHost: ");
-			if (sel == EDITCONF_HOST) printf("\x1b[7m");
-			printf(	"%-34.34s", nc.host);
-			if (sel == EDITCONF_HOST) printf("\x1b[0m");
-			printf(	"\x1b[9;0HPort: ");
-			if (sel == EDITCONF_PORT) printf("\x1b[7m");
-			printf(	"%-34d", nc.port);
-			if (sel == EDITCONF_PORT) printf("\x1b[0m");
-			printf(	"\x1b[11;0HAudio Stream Port: ");
-			if (sel == EDITCONF_AUDIOPORT) printf("\x1b[7m");
-			printf(	"%-21s", nc.audioport?itoa(nc.audioport,input,10):"");
-			if (sel == EDITCONF_AUDIOPORT) printf("\x1b[0m");
-			printf(	"\x1b[13;0HAudio Stream Path: ");
-			if (sel == EDITCONF_AUDIOPATH) printf("\x1b[7m");
-			printf(	"%-21s", nc.audiopath);
-			if (sel == EDITCONF_AUDIOPATH) printf("\x1b[0m");
+			uib_set_position(0,2);
+			uib_printf(	"Name: ");
+			if (sel == EDITCONF_NAME) uib_invert_colors();
+			uib_printf(	"%-34.34s", nc.name);
+			if (sel == EDITCONF_NAME) uib_reset_colors();
 
-			printf(	"\x1b[15;0H%s", sep);
-			printf(	"\x1b[17;0HUsername: ");
-			if (sel == EDITCONF_USER) printf("\x1b[7m");
-			printf(	"%-30.30s", nc.user);
-			if (sel == EDITCONF_USER) printf("\x1b[0m");
-			printf(	"\x1b[19;0HPassword: ");
-			if (sel == EDITCONF_PASS) printf("\x1b[7m");
-			printf(	"%*.*s%*s", strlen(nc.pass), strlen(nc.pass), pass, 30-strlen(nc.pass), "");
-			if (sel == EDITCONF_PASS) printf("\x1b[0m");
-			SDL_Flip(SDL_GetVideoSurface());
+			uib_set_position(0,4);
+			uib_printf( "%s", sep);
+			uib_set_position(0,6);
+			uib_printf(	"Host: ");
+			if (sel == EDITCONF_HOST) uib_invert_colors();
+			uib_printf(	"%-34.34s", nc.host);
+			if (sel == EDITCONF_HOST) uib_reset_colors();
+			uib_set_position(0,8);
+			uib_printf(	"Port: ");
+			if (sel == EDITCONF_PORT)uib_invert_colors();
+			uib_printf(	"%-34d", nc.port);
+			if (sel == EDITCONF_PORT) uib_reset_colors();
+			uib_set_position(0,10);
+			uib_printf(	"Audio Stream Port: ");
+			if (sel == EDITCONF_AUDIOPORT) uib_invert_colors();
+			uib_printf(	"%-21s", nc.audioport?itoa(nc.audioport,input,10):"");
+			if (sel == EDITCONF_AUDIOPORT) uib_reset_colors();
+			uib_set_position(0,12);
+			uib_printf(	"Audio Stream Path: ");
+			if (sel == EDITCONF_AUDIOPATH) uib_invert_colors();
+			uib_printf(	"%-21s", nc.audiopath);
+			if (sel == EDITCONF_AUDIOPATH) uib_reset_colors();
+
+			uib_set_position(0,14);
+			uib_printf(	"%s", sep);
+			uib_set_position(0,16);
+			uib_printf(	"Username: ");
+			if (sel == EDITCONF_USER) uib_invert_colors();
+			uib_printf(	"%-30.30s", nc.user);
+			if (sel == EDITCONF_USER) uib_reset_colors();
+			uib_set_position(0,18);
+			uib_printf(	"Password: ");
+			if (sel == EDITCONF_PASS) uib_invert_colors();
+			uib_printf(	"%*.*s%*s", strlen(nc.pass), strlen(nc.pass), pass, 30-strlen(nc.pass), "");
+			if (sel == EDITCONF_PASS) uib_reset_colors();
+			uib_update();
 		}
+		SDL_Flip(sdl);
 		while (SDL_PollEvent(&e)) {
 			if (e.type == SDL_QUIT)
 				safeexit();
@@ -958,7 +994,6 @@ static int getconfig(vnc_config *c) {
 	int i;
 	static int sel=0;
 
-	SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY, SDL_DEFAULT_REPEAT_INTERVAL);
 	int upd = 1;
 
 	// check which sentry to select or jump into edit mode right away
@@ -972,13 +1007,11 @@ static int getconfig(vnc_config *c) {
 
 	// event loop
 	while (ret == -1) {
-		gfxFlushBuffers();
-		gspWaitForVBlank();
-		//gfxSwapBuffers();
 		if (upd) {
 			printlist(sel);
 			upd=0;
 		}
+		SDL_Flip(sdl);
 		while (SDL_PollEvent(&e)) {
 			if (e.type == SDL_QUIT)
 				safeexit();
@@ -1035,7 +1068,6 @@ static int getconfig(vnc_config *c) {
 		}
 		checkKeyRepeat();
 	}
-	SDL_EnableKeyRepeat(0,0);
 	cpy = -1;
 	return (ret ? -1 : 0);
 }
@@ -1105,13 +1137,12 @@ int main() {
 	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK);
 	SDL_JoystickOpen(0);
 
-	SDL_Surface *sdl=SDL_SetVideoMode(400,240,32, SDL_TOPSCR);
+	sdl=SDL_SetVideoMode(400,240,32, SDL_TOPSCR);
 	SDL_ShowCursor(SDL_DISABLE);
 	bgimg = IMG_Load("romfs:/background.png");
 
 	SDL_BlitSurface(bgimg, NULL, sdl, NULL);
 	SDL_Flip(sdl);
-	consoleInit(GFX_BOTTOM, NULL);
 
 	mkpath(config_filename, false);
 
@@ -1120,6 +1151,8 @@ int main() {
 
 	rfbClientLog=log_msg;
 	rfbClientErr=log_err;
+
+	uib_init();
 
 	while (1) {
 		// get config
@@ -1130,7 +1163,7 @@ int main() {
 		
 		user1=config.user;
 		pass1=config.pass;
-		printf("\x1b[2J"); // clear screen
+		uib_clear();
 		snprintf(buf, sizeof(buf),"%s:%d",config.host, config.port);
 
 		cl=rfbGetClient(8,3,4);
@@ -1180,22 +1213,26 @@ int main() {
 			if(i<0) break; // error waiting
 			if(i && !HandleRFBServerMessage(cl))
 				break; // error handling
-			SDL_Flip(rfbClientGetClientData(cl, SDL_Init));
+			SDL_Flip(sdl);
 		}
 		if (config.audioport)
 			stop_stream();
 		cleanup();
-
-		printf("\x1b[46;30mA:retry B:quit                          \x1b[0m");
+		uib_set_colors(COL_BLACK, HEADERCOL);
+		uib_printf("A:retry B:quit                          ");
+		uib_reset_colors();
+		uib_update();
 		while (1) {
-			while (!SDL_PollEvent(&e)) SDL_Delay(20);
-			map_joy_to_key(&e);
-			if (e.type == SDL_KEYDOWN) {
-				if (e.key.keysym.sym == SDLK_a)
-					break;
-				if (e.key.keysym.sym == SDLK_b)
-					goto quit;
+			if (SDL_PollEvent(&e)) {
+				map_joy_to_key(&e);
+				if (e.type == SDL_KEYDOWN) {
+					if (e.key.keysym.sym == SDLK_a)
+						break;
+					if (e.key.keysym.sym == SDLK_b)
+						goto quit;
+				}
 			}
+			SDL_Flip(sdl);
 		}
 	}
 quit:

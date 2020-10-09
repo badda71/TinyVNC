@@ -19,7 +19,7 @@ TARGET		:=	$(shell basename $(CURDIR))
 BUILD		:=	build
 SOURCES		:=	$(shell find -L src -type d 2> /dev/null)
 DATA		:=	data
-INCLUDES	:=	include $(SOURCES)
+INCLUDES	:=	include/SDL $(SOURCES)
 
 #---------------------------------------------------------------------------------
 # options for code generation

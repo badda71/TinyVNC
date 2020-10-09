@@ -1,3 +1,11 @@
+/*
+ * TinyVNC - A VNC client for Nintendo 3DS
+ *
+ * streamclient.c - functions for handling mp3 audio streaming
+ *
+ * Copyright 2020 Sebastian Weber
+ */
+
 #include <stdarg.h>
 #include <3ds.h>
 #include <stdio.h>
