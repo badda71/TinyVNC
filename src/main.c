@@ -94,25 +94,27 @@ struct {
 	{NULL,0,0}
 };
 
-static void vlog_citra(const char *format, va_list arg ) {
-	char buf[2000];
-//	static Handle mutex = 0;
-//	if (!mutex) svcCreateMutex(&mutex, false);
-	vsnprintf(buf, sizeof(buf), format, arg);
-	int i=strlen(buf);
-	while (i && buf[i-1]=='\n') buf[--i]=0; // strip trailing newlines
-//	svcWaitSynchronization(mutex, U64_MAX);
-	svcOutputDebugString(buf, i);
-	uib_printf("%s\n",buf);
-	uib_update();
-//	svcReleaseMutex(mutex);
+static void vwrite_log(const char *format, va_list arg, int channel)
+{
+	int i=vsnprintf(NULL, 0, format, arg);
+	if (i) {
+		char *buf = malloc(i+1);
+		vsnprintf(buf, i+1, format, arg);
+		while (i && buf[i-1]=='\n') buf[--i]=0; // strip trailing newlines
+		if (channel & 2) svcOutputDebugString(buf, i);
+		if (channel & 1) {
+			uib_printf("%s\n",buf);
+			uib_update();
+			SDL_Flip(sdl);
+		}
+		free(buf);
+	}
 }
 
-void log_citra(const char *format, ...)
-{
+void log_citra(const char *format, ...) {
     va_list argptr;
     va_start(argptr, format);
-	vlog_citra(format, argptr);
+	vwrite_log(format, argptr, 2);
     va_end(argptr);
 }
 
@@ -120,7 +122,7 @@ void log_msg(const char *format, ...)
 {
     va_list argptr;
     va_start(argptr, format);
-	vlog_citra(format, argptr);
+	vwrite_log(format, argptr, 3);
     va_end(argptr);
 }
 
@@ -129,7 +131,7 @@ void log_err(const char *format, ...)
 	va_list argptr;
     va_start(argptr, format);
 	uib_set_colors(COL_RED, COL_BLACK);
-	vlog_citra(format, argptr);
+	vwrite_log(format, argptr, 3);
 	uib_reset_colors();
     va_end(argptr);
 }
@@ -1179,6 +1181,7 @@ int main() {
 
 		readkeymaps(config.name);
 		rfbClientLog("Connecting to %s", buf);
+		
 		if(!rfbInitClient(cl, &argc, argv))
 		{
 			cl = NULL; /* rfbInitClient has already freed the client struct */
