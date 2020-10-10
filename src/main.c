@@ -28,6 +28,7 @@ typedef struct {
 	char audiopath[128];
 	char user[128];
 	char pass[128];
+	int scaling;
 } vnc_config;
 
 typedef struct {
@@ -57,6 +58,11 @@ static int x,y;
 rfbClient* cl;
 static SDL_Surface *bgimg;
 SDL_Surface* sdl=NULL;
+static int sdl_pos_x, sdl_pos_y;
+static vnc_config config;
+
+extern void SDL_SetVideoPosition(int x, int y);
+extern void SDL_ResetVideoPosition();
 
 // default
 struct {
@@ -89,7 +95,7 @@ struct {
 	{"CSTCK_LEFT", XK_j},
 	{"CSTCK_RIGHT", XK_l},
 
-	{NULL,0,0}
+	{NULL,0}
 };
 
 static void vwrite_log(const char *format, va_list arg, int channel)
@@ -151,9 +157,15 @@ static rfbBool resize(rfbClient* client) {
 
 	/* (re)create the surface used as the client's framebuffer */
 	int flags = SDL_TOPSCR;
-	if (width > 400 || height > 240) {
-		flags |= ((width * 1000) / 400 > (height * 1000) / 240)? SDL_FITWIDTH : SDL_FITHEIGHT;
+	if (config.scaling) {
+		SDL_ResetVideoPosition();
+		if (width > 400 || height > 240) {
+			flags |= ((width * 1000) / 400 > (height * 1000) / 240)? SDL_FITWIDTH : SDL_FITHEIGHT;
+		}
+	} else {
+		SDL_SetVideoPosition(sdl_pos_x = 0, sdl_pos_y = 0);
 	}
+
 	sdl = SDL_SetVideoMode(width, height, depth, flags);
 	SDL_ShowCursor(SDL_DISABLE);
 
@@ -304,6 +316,14 @@ static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 			y += e->motion.yrel;
 			if (y < 0) y=0;
 			if (y > cl->height) y = cl->height;
+
+			if (!config.scaling) {
+				if (x < -sdl_pos_x) sdl_pos_x = -x;
+				if (x > -sdl_pos_x + 400) sdl_pos_x = -x + 400;
+				if (y < -sdl_pos_y) sdl_pos_y = -y;
+				if (y > -sdl_pos_y + 240) sdl_pos_y = -y + 240;
+				SDL_SetVideoPosition(sdl_pos_x, sdl_pos_y);
+			}
 		}
 		else {
 			record_mousebutton_event(e->button.button, e->type == SDL_MOUSEBUTTONDOWN?1:0);
@@ -438,6 +458,7 @@ enum {
 	EDITCONF_AUDIOPATH,
 	EDITCONF_USER,
 	EDITCONF_PASS,
+	EDITCONF_SCALING,
 	EDITCONF_END
 };
 
@@ -456,9 +477,11 @@ static int editconfig(vnc_config *c) {
 	vnc_config nc = *c;
 	if (nc.port <= 0)
 		nc.port = SERVER_PORT_OFFSET;
-	
 	if (!nc.audiopath[0])
 		strcpy(nc.audiopath,"/");
+	if (!nc.host[0])
+		nc.scaling = 1;
+
 	int upd = 1;
 
 	while (ret==0) {
@@ -524,6 +547,15 @@ static int editconfig(vnc_config *c) {
 			if (sel == EDITCONF_PASS) uib_invert_colors();
 			uib_printf(	"%*.*s%*s", strlen(nc.pass), strlen(nc.pass), pass, 30-strlen(nc.pass), "");
 			if (sel == EDITCONF_PASS) uib_reset_colors();
+
+			uib_set_position(0,20);
+			uib_printf(	"%s", sep);
+			uib_set_position(0,22);
+			uib_printf(nc.scaling?"\x91 ":"\x90 ");
+			if (sel == EDITCONF_SCALING) uib_invert_colors();
+			uib_printf(	"Scale to fit screen");
+			if (sel == EDITCONF_SCALING) uib_reset_colors();
+
 			uib_update(UIB_RECALC_MENU);
 		}
 		SDL_Flip(sdl);
@@ -637,6 +669,9 @@ static int editconfig(vnc_config *c) {
 						if(button != SWKBD_BUTTON_LEFT)
 							strcpy(nc.pass, input);
 						break;
+					case EDITCONF_SCALING:
+						nc.scaling = !nc.scaling;
+						break;
 					}
 					break;
 				default:
@@ -672,6 +707,7 @@ static void readconfig() {
 					conf[i].port = c[i].port;
 					strcpy(conf[i].user, c[i].user);
 					strcpy(conf[i].pass, c[i].pass);
+					conf[i].scaling = 1;
 				}
 			} else {
 				// read current config
@@ -855,8 +891,6 @@ int main() {
 
 	while (1) {
 		// get config
-		vnc_config config;
-
 		if (getconfig(&config) ||
 			config.host[0] == 0) goto quit;
 		

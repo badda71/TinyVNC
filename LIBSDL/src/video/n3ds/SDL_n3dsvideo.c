@@ -19,6 +19,7 @@
     Sam Lantinga
     slouken@libsdl.org
 */
+#include <limits.h>
 #include "SDL_config.h"
 
 #include "SDL_video.h"
@@ -499,6 +500,19 @@ void SDL_RequestCall(void(*callback)(void*), void *param) {
 	addDrawParam=param;
 }
 
+static int pos_x = INT_MAX;
+static int pos_y = INT_MAX;
+
+void SDL_SetVideoPosition(int x, int y) {
+	pos_x = x;
+	pos_y = y;
+}
+
+void SDL_ResetVideoPosition() {
+	pos_x = INT_MAX;
+	pos_y = INT_MAX;
+}
+
 static void videoThread(void* data)
 {
     _THIS = (SDL_VideoDevice *) data;
@@ -517,7 +531,15 @@ static void videoThread(void* data)
 					C3D_RenderTargetClear(VideoSurface1, C3D_CLEAR_ALL, RenderClearColor, 0);
 					C3D_FrameDrawOn(VideoSurface1);
 					C3D_TexBind(0, &spritesheet_tex);
-					drawTexture((400-this->hidden->w1*this->hidden->scalex)/2,(240-this->hidden->h1*this->hidden->scaley)/2, this->hidden->w1*this->hidden->scalex, this->hidden->h1*this->hidden->scaley, this->hidden->l1, this->hidden->r1, this->hidden->t1, this->hidden->b1);
+					drawTexture(
+						pos_x == INT_MAX ? (400-this->hidden->w1*this->hidden->scalex)/2 : pos_x,
+						pos_y == INT_MAX ? (240-this->hidden->h1*this->hidden->scaley)/2 : pos_y,
+						this->hidden->w1*this->hidden->scalex,
+						this->hidden->h1*this->hidden->scaley,
+						this->hidden->l1,
+						this->hidden->r1,
+						this->hidden->t1,
+						this->hidden->b1);
 				}
 				if (this->hidden->screens & SDL_BOTTOMSCR) {
 					C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uLoc_projection, &projection2);
