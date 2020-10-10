@@ -956,21 +956,23 @@ int main() {
 			stop_stream();
 		cleanup();
 		uib_enable_keyboard(0);
-		uib_set_colors(COL_BLACK, HEADERCOL);
-		uib_printf("A:retry B:quit                          ");
-		uib_reset_colors();
-		uib_update(UIB_RECALC_MENU);
-		while (1) {
-			SDL_Flip(sdl);
-			checkKeyRepeat();
-			if (SDL_PollEvent(&e)) {
-				if (uib_handle_event(&e)) continue;
-				map_joy_to_key(&e);
-				if (e.type == SDL_KEYDOWN) {
-					if (e.key.keysym.sym == XK_a)
-						break;
-					if (e.key.keysym.sym == XK_b)
-						goto quit;
+		if (!ext) { // means, we exited due to an error
+			uib_set_colors(COL_BLACK, HEADERCOL);
+			uib_printf("A:retry B:quit                          ");
+			uib_reset_colors();
+			uib_update(UIB_RECALC_MENU);
+			while (1) {
+				SDL_Flip(sdl);
+				checkKeyRepeat();
+				if (SDL_PollEvent(&e)) {
+					if (uib_handle_event(&e)) continue;
+					map_joy_to_key(&e);
+					if (e.type == SDL_KEYDOWN) {
+						if (e.key.keysym.sym == XK_a)
+							break;
+						if (e.key.keysym.sym == XK_b)
+							goto quit;
+					}
 				}
 			}
 		}
