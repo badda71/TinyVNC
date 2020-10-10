@@ -455,6 +455,8 @@ SDL_Surface *N3DS_SetVideoMode(_THIS, SDL_Surface *current,
 	if (mode==2) mode = 3;
 
 	// Setup the textures
+	if(setVideoModecount>1)
+		C3D_TexDelete(&spritesheet_tex); // delete in case it was initialized before
 	C3D_TexInit(&spritesheet_tex, hw, hh, this->hidden->mode);
 	C3D_TexSetFilter(&spritesheet_tex, this->hidden->fitscreen ? GPU_LINEAR : GPU_NEAREST , GPU_NEAREST);
 //	C3D_TexBind(0, &spritesheet_tex);
