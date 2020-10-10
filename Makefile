@@ -91,7 +91,7 @@ LDFLAGS	=	-specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
 SUBLIBS	:=	LIBSDL
 
-LIBS	:= -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lmpg123 -lSDL_image -lpng -ljpeg -lz -lcitro3d -lctru -lm
+LIBS	:= -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lmpg123 -lpng -ljpeg -lz -lcitro3d -lctru -lm
 
 #---------------------------------------------------------------------------------
 # makerom options (cia/3ds build)

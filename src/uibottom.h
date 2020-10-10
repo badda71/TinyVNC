@@ -31,11 +31,13 @@
 // exposed definitions
 typedef enum {
 	UIB_NO = 0,
-	UIB_REPAINT = 1
+	UIB_REPAINT = 1,
+	UIB_RECALC_KEYPRESS = 2,
+	UIB_RECALC_MENU = 4
 } uib_action;
 
 typedef struct {
-	int x,y,w,h,key,sticky,flags;
+	int x,y,w,h,key,shftkey,sticky,repeat;
 	const char *name;
 } uikbd_key;
 
@@ -46,6 +48,12 @@ typedef enum {
 } str_alignment;
 
 // exposed functions
+extern void make_key_event_norepeat(SDL_Event *e, int sym, int pressed);
+extern void make_key_event(SDL_Event *e, int sym, int pressed);
+extern void push_key_event(int sym, int pressed);
+extern void push_key_event_norepeat(int sym, int pressed);
+extern void checkKeyRepeat();
+
 extern void uib_printtext(SDL_Surface *s, const char *str, int xo, int yo, int w, int h, SDL_Color tcol, SDL_Color bcol);
 extern void uib_printstring(SDL_Surface *s, const char *str, int x, int y, int maxchars, str_alignment align, SDL_Color tcol, SDL_Color bcol);
 extern int uib_printf(char *format, ...);
@@ -55,11 +63,14 @@ extern void uib_set_colors(SDL_Color text, SDL_Color background);
 extern void uib_reset_colors();
 extern void uib_invert_colors();
 extern void uib_clear();
+extern SDL_Surface *myIMG_Load(char *fname);
 
-extern void uib_update(void);
+
+extern void uib_update(int what);
 extern int uib_handle_event(SDL_Event *);
 extern void uib_init();
 extern int uib_handle_tap_processing(SDL_Event *e);
+extern void uib_enable_keyboard(int enable);
 
 // exposed variables
 extern uikbd_key uikbd_keypos[];
