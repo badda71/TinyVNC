@@ -28,6 +28,12 @@
 		__typeof__ (b) _b = (b); \
 		_a > _b ? _a : _b; })
 
+#define LIMIT(a,l1,l2) \
+	({ __typeof__ (a) _a = (a); \
+		__typeof__ (l1) _l1 = (l1); \
+		__typeof__ (l2) _l2 = (l2); \
+		_a < l1 ? l1 : (_a > l2 ? l2 : _a); })
+
 // exposed definitions
 typedef enum {
 	UIB_NO = 0,
@@ -71,6 +77,8 @@ extern int uib_handle_event(SDL_Event *);
 extern void uib_init();
 extern int uib_handle_tap_processing(SDL_Event *e);
 extern void uib_enable_keyboard(int enable);
+extern void uib_show_scrollbars(int x, int y, int w, int h);
+#define SCROLLBAR_WIDTH 2
 
 // exposed variables
 extern uikbd_key uikbd_keypos[];

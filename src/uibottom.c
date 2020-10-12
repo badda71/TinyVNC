@@ -136,6 +136,8 @@ static DS3_Image keymask_spr;
 
 // dynamic sprites
 static DS3_Image menu_spr;
+static DS3_Image whitepixel_spr;
+static DS3_Image blackpixel_spr;
 
 // SDL Surfaces
 SDL_Surface *menu_img=NULL;
@@ -152,6 +154,8 @@ static int kb_enabled = 0;
 static int uib_x=0, uib_y=0;
 static SDL_Color txt_col = DEF_TXT_COL;
 static SDL_Color bck_col = DEF_BCK_COL;
+static int top_scrollbars = 0;
+static int sb_pos_hx, sb_pos_hw, sb_pos_vy, sb_pos_vh;
 
 // static functions
 // ================
@@ -408,6 +412,14 @@ static inline void requestRepaint() {
 static void uib_repaint(void *param) {
 	ENTER
 	
+	// paint the scrollbars
+	if (top_scrollbars) {
+		if (top_scrollbars & 1) drawImage(&blackpixel_spr, 0, 238, 320, SCROLLBAR_WIDTH, 0);
+		if (top_scrollbars & 2) drawImage(&blackpixel_spr, 318, 0, SCROLLBAR_WIDTH, 240, 0);
+		if (top_scrollbars & 1) drawImage(&whitepixel_spr, sb_pos_hx, 238, sb_pos_hw, SCROLLBAR_WIDTH, 0);
+		if (top_scrollbars & 2) drawImage(&whitepixel_spr, 318, sb_pos_vy, SCROLLBAR_WIDTH, sb_pos_vh, 0);
+	}
+
 	if (svcWaitSynchronization(repaintRequired, 0)) return;
 	svcClearEvent(repaintRequired);
 
@@ -1079,4 +1091,30 @@ int uib_handle_event(SDL_Event *e) {
 	}
 	uib_update(UIB_RECALC_KEYPRESS);
 	return 1;
+}
+
+void uib_show_scrollbars(int x, int y, int w, int h)
+{
+	static int width=400;
+	static int height=240;
+	if (w) width = w;
+	if (h) height = h;
+	top_scrollbars = (width>400?1:0) + (height>240?2:0);
+	if (!top_scrollbars) return;
+	static int isinit=0;
+
+	if (!isinit) {
+		makeImage(&whitepixel_spr, (const u8[]){0xff, 0xff, 0xff, 0xff},1,1,0);
+		makeImage(&blackpixel_spr, (const u8[]){0x00, 0x00, 0x00, 0xff},1,1,0);
+		isinit=1;
+	}
+	if (width>400) {
+		sb_pos_hx=(-x*320)/width;
+		sb_pos_hw=(400*320)/width;
+	}
+	if (height>240) {
+		sb_pos_vy=(-y*240)/height;
+		sb_pos_vh=(240*240)/height;
+	}
+	requestRepaint();
 }

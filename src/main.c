@@ -56,12 +56,13 @@ static int cpy = -1;
 static u32 *SOC_buffer = NULL;
 static int viewOnly=0, buttonMask=0;
 /* client's pointer position */
-static int x,y;
+static int x=0,y=0;
 rfbClient* cl;
 static SDL_Surface *bgimg;
 SDL_Surface* sdl=NULL;
 static int sdl_pos_x, sdl_pos_y;
 static vnc_config config;
+static int have_scrollbars=0;
 
 extern void SDL_SetVideoPosition(int x, int y);
 extern void SDL_ResetVideoPosition();
@@ -80,7 +81,8 @@ struct {
 	{"ZL", XK_1},
 	{"ZR", XK_2},
 	{"START", 2}, // disconnect
-	{"SELECT", XK_Escape},
+//	{"SELECT", 8}, // toggle scaling
+	{"SELECT", XK_Escape}
 
 	{"CPAD_UP", XK_Up}, // C-PAD
 	{"CPAD_DOWN", XK_Down},
@@ -146,7 +148,6 @@ static rfbBool resize(rfbClient* client) {
 	int width=client->width;
 	int height=client->height;
 	int depth=client->format.bitsPerPixel;
-//log_citra("%s: %d %d %d",__func__,width,height,depth);
 
 	if (width > 1024 || height > 1024) {
 		rfbClientErr("resize: screen size >1024px not supported");
@@ -165,7 +166,12 @@ static rfbBool resize(rfbClient* client) {
 			flags |= ((width * 1000) / 400 > (height * 1000) / 240)? SDL_FITWIDTH : SDL_FITHEIGHT;
 		}
 	} else {
-		SDL_SetVideoPosition(sdl_pos_x = 0, sdl_pos_y = 0);
+		have_scrollbars = (width>400?1:0) + (height>240?2:0);
+		int w = have_scrollbars & 2 ? 398 : 400;
+		int h = have_scrollbars & 1 ? 238 : 240;
+		// center screen around mouse cursor if not scaling
+		SDL_SetVideoPosition(sdl_pos_x = LIMIT(-x+w/2, -width+w,0), sdl_pos_y = LIMIT( -y+h/2, -height+h, 0));
+		uib_show_scrollbars(sdl_pos_x, sdl_pos_y, width, height);
 	}
 
 	sdl = SDL_SetVideoMode(width, height, depth, flags);
@@ -320,11 +326,14 @@ static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 			if (y > cl->height) y = cl->height;
 
 			if (!config.scaling) {
-				if (x < -sdl_pos_x) sdl_pos_x = -x;
-				if (x > -sdl_pos_x + 400) sdl_pos_x = -x + 400;
-				if (y < -sdl_pos_y) sdl_pos_y = -y;
-				if (y > -sdl_pos_y + 240) sdl_pos_y = -y + 240;
+				int w = have_scrollbars & 2 ? 398 : 400;
+				int h = have_scrollbars & 1 ? 238 : 240;
+				if (x < -sdl_pos_x)		sdl_pos_x = -x;
+				if (x > -sdl_pos_x + w)	sdl_pos_x = -x + w;
+				if (y < -sdl_pos_y)		sdl_pos_y = -y;
+				if (y > -sdl_pos_y + h)	sdl_pos_y = -y + h;
 				SDL_SetVideoPosition(sdl_pos_x, sdl_pos_y);
+				uib_show_scrollbars(sdl_pos_x, sdl_pos_y, 0, 0);
 			}
 		}
 		else {
@@ -337,12 +346,20 @@ static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 	case SDL_KEYUP:
 	case SDL_KEYDOWN:
 		s =  e->key.keysym.sym;
-		if (s == 2) return 0; // disconnect
+		if (s == 2)
+			return 0; // disconnect
 		if (viewOnly) break;
-		if (s>2 && s<8) { // mouse button 1-5: -1 - -5
+		if (s>2 && s<8) {
+			// mouse button 1-5: 3-7
 			record_mousebutton_event(s-2, e->type == SDL_KEYDOWN?1:0);
 			SendPointerEvent(cl, x, y, buttonMask);
 			buttonMask &= ~(rfbButton4Mask | rfbButton5Mask); // clear wheel up and wheel down state
+		} else if (s == 8 && e->type == SDL_KEYDOWN) {
+			// toggle scaling
+			config.scaling = !config.scaling;
+			// resize the SDL screen
+			resize(cl);
+			SendFramebufferUpdateRequest(cl, 0, 0, cl->width, cl->height, false);
 		} else {
 			SendKeyEvent(cl, s, e->type == SDL_KEYDOWN ? TRUE : FALSE);
 		}
@@ -847,7 +864,9 @@ static void readkeymaps(char *cname) {
 			"# mappings as per https://libvnc.github.io/doc/html/keysym_8h_source.html\n"
 			"# 1 = toggle keyboard\n"
 			"# 2 = disconnect\n"
-			"# 3-7 = mouse button 1-5\n");
+			"# 3-7 = mouse button 1-5 (1=left, 2=middle, 3=right, 4=wheelup, 5=wheeldown\n"
+			"# 8 = toggle scaling\n"
+		);
 		for (i=0; buttons3ds[i].rfb_key != 0; ++i) {
 			fprintf(f,"%s\t%s0x%04X\n",
 				buttons3ds[i].name,
