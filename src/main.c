@@ -49,6 +49,8 @@ struct { int sdl; int rfb; } buttonMapping[]={
 };
 
 const char *config_filename = "/3ds/TinyVNC/vnc.cfg";
+const char *keymap_filename = "/3ds/TinyVNC/keymap";
+#define BUFSIZE 1024
 static vnc_config conf[NUMCONF] = {0};
 static int cpy = -1;
 static u32 *SOC_buffer = NULL;
@@ -698,6 +700,8 @@ static void readconfig() {
 			long int sz = ftell(f);
 			fseek(f, 0L, SEEK_SET);
 			if (sz == sizeof(vnc_config_0_9) * NUMCONF) {
+				// starting for first time after upgrade from 0.9, delete the keymap file
+				unlink(keymap_filename);
 				// read 0.9 config
 				vnc_config_0_9 c[NUMCONF] = {0};
 				fread((void*)c, sizeof(vnc_config_0_9), NUMCONF, f);
@@ -813,9 +817,6 @@ static void safeexit() {
 	SDL_Quit();
 	exit(0);
 }
-
-const char *keymap_filename = "/3ds/TinyVNC/keymap";
-#define BUFSIZE 1024
 
 static void readkeymaps(char *cname) {
 	FILE *f=NULL;
