@@ -63,6 +63,7 @@ SDL_Surface* sdl=NULL;
 static int sdl_pos_x, sdl_pos_y;
 static vnc_config config;
 static int have_scrollbars=0;
+aptHookCookie cookie;
 
 extern void SDL_SetVideoPosition(int x, int y);
 extern void SDL_ResetVideoPosition();
@@ -81,8 +82,9 @@ struct {
 	{"ZL", XK_1},
 	{"ZR", XK_2},
 	{"START", 2}, // disconnect
+//	{"SELECT", 9}, // toggle bottom backlight
 //	{"SELECT", 8}, // toggle scaling
-	{"SELECT", XK_Escape}
+	{"SELECT", XK_Escape},
 
 	{"CPAD_UP", XK_Up}, // C-PAD
 	{"CPAD_DOWN", XK_Down},
@@ -360,6 +362,9 @@ static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 			// resize the SDL screen
 			resize(cl);
 			SendFramebufferUpdateRequest(cl, 0, 0, cl->width, cl->height, false);
+		} else if (s == 9 && e->type == SDL_KEYDOWN) {
+			// toggle bottom screen
+			uib_setBacklight(!uib_getBacklight());
 		} else {
 			SendKeyEvent(cl, s, e->type == SDL_KEYDOWN ? TRUE : FALSE);
 		}
@@ -832,6 +837,7 @@ static void safeexit() {
 	saveconfig();
 	socExit();
 	SDL_Quit();
+	uib_setBacklight(1);
 	exit(0);
 }
 
@@ -866,6 +872,7 @@ static void readkeymaps(char *cname) {
 			"# 2 = disconnect\n"
 			"# 3-7 = mouse button 1-5 (1=left, 2=middle, 3=right, 4=wheelup, 5=wheeldown\n"
 			"# 8 = toggle scaling\n"
+			"# 9 = toggle bottom screen backlight\n"
 		);
 		for (i=0; buttons3ds[i].rfb_key != 0; ++i) {
 			fprintf(f,"%s\t%s0x%04X\n",
@@ -878,12 +885,34 @@ static void readkeymaps(char *cname) {
 	if (p) free(p);
 }
 
+void aptHookFunc(APT_HookType hookType, void *param)
+{
+
+	static int old_state = 1;
+	switch (hookType) {
+		case APTHOOK_ONSUSPEND:
+		case APTHOOK_ONSLEEP:
+			old_state = uib_getBacklight();
+			if (!old_state) uib_setBacklight (1);
+			break;
+		case APTHOOK_ONRESTORE:
+		case APTHOOK_ONWAKEUP:
+			uib_setBacklight (old_state);
+			break;
+		case APTHOOK_ONEXIT:
+			break;
+		default:
+			break;
+	}
+}
+
 int main() {
 	int i;
 	SDL_Event e;
 	char buf[512];
 	osSetSpeedupEnable(1);
 
+	atexit(safeexit);
 	// init romfs file system
 	romfsInit();
 	atexit((void (*)())romfsExit);
@@ -908,6 +937,7 @@ int main() {
 
 	uib_enable_keyboard(0);
 	uib_init();
+	aptHook(&cookie, aptHookFunc, NULL);
 
 	while (1) {
 		// get config
@@ -957,6 +987,7 @@ int main() {
 			while (SDL_PollEvent(&e)) {
 				if (uib_handle_event(&e)) continue;
 				if(!handleSDLEvent(cl, &e)) {
+					uib_setBacklight(1);
 					rfbClientLog("Disconnecting");
 					ext=1;
 					break;
@@ -998,5 +1029,5 @@ int main() {
 		}
 	}
 quit:
-	safeexit();
+	return 1;
 }

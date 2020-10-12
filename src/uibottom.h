@@ -32,7 +32,7 @@
 	({ __typeof__ (a) _a = (a); \
 		__typeof__ (l1) _l1 = (l1); \
 		__typeof__ (l2) _l2 = (l2); \
-		_a < l1 ? l1 : (_a > l2 ? l2 : _a); })
+		_a < _l1 ? _l1 : (_a > _l2 ? _l2 : _a); })
 
 // exposed definitions
 typedef enum {
@@ -79,6 +79,8 @@ extern int uib_handle_tap_processing(SDL_Event *e);
 extern void uib_enable_keyboard(int enable);
 extern void uib_show_scrollbars(int x, int y, int w, int h);
 #define SCROLLBAR_WIDTH 2
+extern int uib_getBacklight();
+extern void uib_setBacklight (int on);
 
 // exposed variables
 extern uikbd_key uikbd_keypos[];

@@ -156,6 +156,7 @@ static SDL_Color txt_col = DEF_TXT_COL;
 static SDL_Color bck_col = DEF_BCK_COL;
 static int top_scrollbars = 0;
 static int sb_pos_hx, sb_pos_hw, sb_pos_vy, sb_pos_vh;
+static int bottom_lcd_on=1;
 
 // static functions
 // ================
@@ -1117,4 +1118,20 @@ void uib_show_scrollbars(int x, int y, int w, int h)
 		sb_pos_vh=(240*240)/height;
 	}
 	requestRepaint();
+}
+
+int uib_getBacklight() {
+	return bottom_lcd_on;
+}
+
+void uib_setBacklight (int on) {
+	if (on == bottom_lcd_on) return;
+	gspLcdInit();
+	bottom_lcd_on=on;
+	if (on) {
+		GSPLCD_PowerOnBacklight(GSPLCD_SCREEN_BOTTOM);
+	} else {
+		GSPLCD_PowerOffBacklight(GSPLCD_SCREEN_BOTTOM);
+	}
+	gspLcdExit();
 }
