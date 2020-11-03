@@ -870,7 +870,7 @@ static void readkeymaps(char *cname) {
 			"# mappings as per https://libvnc.github.io/doc/html/keysym_8h_source.html\n"
 			"# 1 = toggle keyboard\n"
 			"# 2 = disconnect\n"
-			"# 3-7 = mouse button 1-5 (1=left, 2=middle, 3=right, 4=wheelup, 5=wheeldown\n"
+			"# 3-7 = mouse button 1-5 (1=left, 2=middle, 3=right, 4=wheelup, 5=wheeldown)\n"
 			"# 8 = toggle scaling\n"
 			"# 9 = toggle bottom screen backlight\n"
 		);
