@@ -138,12 +138,14 @@ static DS3_Image keymask_spr;
 static DS3_Image menu_spr;
 static DS3_Image whitepixel_spr;
 static DS3_Image blackpixel_spr;
+static DS3_Image uibvnc_spr;
 
 // SDL Surfaces
 SDL_Surface *menu_img=NULL;
 SDL_Surface *chars_img=NULL;
 
 // static variables
+static u8* uibvnc_buffer = NULL;
 static Handle repaintRequired;
 static int uib_isinit=0;
 static int kb_y_pos = 0;
@@ -158,8 +160,40 @@ static int top_scrollbars = 0;
 static int sb_pos_hx, sb_pos_hw, sb_pos_vy, sb_pos_vh;
 static int bottom_lcd_on=1;
 
+
 // static functions
 // ================
+
+/* 8-times unrolled loop */
+#define DUFFS_LOOP(pixel_copy_increment, width)			\
+{ int n = (width+7)/8;							\
+	switch (width & 7) {						\
+	case 0: do {	pixel_copy_increment;				\
+	case 7:		pixel_copy_increment;				\
+	case 6:		pixel_copy_increment;				\
+	case 5:		pixel_copy_increment;				\
+	case 4:		pixel_copy_increment;				\
+	case 3:		pixel_copy_increment;				\
+	case 2:		pixel_copy_increment;				\
+	case 1:		pixel_copy_increment;				\
+		} while ( --n > 0 );					\
+	}								\
+}
+
+static void bufferSetMask(u8* buffer, int width, int height, int pitch)
+{
+	int skip = (pitch - width) * 4;
+
+	while ( height-- ) {
+		DUFFS_LOOP(
+		{
+			*buffer = 0xFF;
+			buffer+=4;
+		},
+		width);
+		buffer += skip;
+	}
+}
 
 // sprite handling funtions
 extern C3D_RenderTarget* VideoSurface2;
@@ -174,6 +208,55 @@ extern void SDL_RequestCall(void(*callback)(void*), void *param);
 	GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO))
 
 #define TEX_MIN_SIZE 64
+
+void hex_dump(char *data, int size, char *caption)
+{
+	int i; // index in data...
+	int j; // index in line...
+	char temp[8];
+	char buffer[128];
+	char *ascii;
+
+	memset(buffer, 0, 128);
+
+	log_citra("---------> %s <--------- (%d bytes from %p)", caption, size, data);
+	// Printing the ruler...
+	//log_citra("        +0          +4          +8          +c            0   4   8   c   ");	
+
+	// Hex portion of the line is 8 (the padding) + 3 * 16 = 52 chars long
+	// We add another four bytes padding and place the ASCII version...
+	ascii = buffer + 58;
+	memset(buffer, ' ', 58 + 16);
+	buffer[58 + 16] = '\0';
+	buffer[0] = '+';
+	buffer[1] = '0';
+	buffer[2] = '0';
+	buffer[3] = '0';
+	buffer[4] = '0';
+	for (i = 0, j = 0; i < size; i++, j++)
+	{
+		if (j == 16)
+		{
+			log_citra("%s", buffer);
+			memset(buffer, ' ', 58 + 16);
+
+			sprintf(temp, "+%04x", i);
+			memcpy(buffer, temp, 5);
+
+			j = 0;
+		}
+
+		sprintf(temp, "%02x", 0xff & data[i]);
+		memcpy(buffer + 8 + (j * 3), temp, 2);
+		if ((data[i] > 31) && (data[i] < 127))
+			ascii[j] = data[i];
+		else
+			ascii[j] = '.';
+	}
+
+	if (j != 0)
+		log_citra("%s", buffer);
+}
 
 // key repeat functions for the simulated key repeat
 static int keydown = 0;
@@ -327,7 +410,7 @@ static void  drawImage( DS3_Image *img, int x, int y, int w, int h, int deg) {
 static void makeTexture(C3D_Tex *tex, const u8 *mygpusrc, unsigned hw, unsigned hh) {
 	// init texture
 	C3D_TexDelete(tex);
-	C3D_TexInit(tex, hw, hh, GPU_RGBA8);
+	C3D_TexInit(tex, hw, hh, GSP_RGBA8_OES);
 	C3D_TexSetFilter(tex, GPU_NEAREST, GPU_NEAREST);
 
 	// Convert image to 3DS tiled texture format
@@ -428,9 +511,14 @@ static void uib_repaint(void *param) {
 	C3D_RenderTargetClear(VideoSurface2, C3D_CLEAR_ALL, CLEAR_COLOR, 0);
 	C3D_FrameDrawOn(VideoSurface2);
 
-	// menu
-	int y = kb_enabled ? MIN(0,-240 + kb_y_pos + (29-uib_y) * 8) : 0;
-	drawImage(&menu_spr, 0, y, 0, 0, 0);
+	// bottom VNC screen
+	if (uibvnc_buffer) {
+		drawImage(&uibvnc_spr, 0, 0, 320, 240, 0);
+	} else { 
+		// menu
+		int y = kb_enabled ? MIN(0,-240 + kb_y_pos + (29-uib_y) * 8) : 0;
+		drawImage(&menu_spr, 0, y, 0, 0, 0);
+	}
 
 	if (kb_enabled) {
 		// keyboard
@@ -779,6 +867,10 @@ void uib_update(int what)
 		}
 		if (uib_must_redraw & UIB_RECALC_MENU) {
 			makeImage(&menu_spr, menu_img->pixels, menu_img->w, menu_img->h, 1);
+		}
+		if (uib_must_redraw & UIB_RECALC_VNC) {
+			bufferSetMask(uibvnc_buffer, 320, 240, 512);
+			makeImage(&uibvnc_spr, uibvnc_buffer, uibvnc_spr.w, uibvnc_spr.h, 1);
 		}
 		uib_must_redraw = UIB_NO;
 		requestRepaint();
@@ -1134,4 +1226,55 @@ void uib_setBacklight (int on) {
 		GSPLCD_PowerOffBacklight(GSPLCD_SCREEN_BOTTOM);
 	}
 	gspLcdExit();
+}
+
+void uibvnc_cleanup() {
+	if (uibvnc_buffer) {
+		linearFree(uibvnc_buffer);
+		uibvnc_buffer=NULL;
+	}
+}
+
+rfbBool uibvnc_resize(rfbClient* client) {
+
+//log_citra("enter %s, %p, %d, %d",__func__, client, client->width, client->height);
+	if (client->width > 1024 || client->height > 1024) {
+		rfbClientErr("bottom resize: screen size >1024px!");
+		return FALSE;
+	}
+
+	uibvnc_spr.w=client->width;
+	uibvnc_spr.h=client->height;
+
+	client->updateRect.x = client->updateRect.y = 0;
+	client->updateRect.w = uibvnc_spr.w;
+	client->updateRect.h = uibvnc_spr.h;
+
+	/* (re)create the buffer used as the client's framebuffer */
+	uibvnc_cleanup();
+
+	unsigned hw=mynext_pow2(uibvnc_spr.w);
+	unsigned hh=mynext_pow2(uibvnc_spr.h);
+
+	// alloc buffer in linear RAM, ABGR pixel format, pow2-dimensions
+	uibvnc_buffer = (u8*)linearAlloc(hh*hw*4);
+	if(!uibvnc_buffer) {
+		rfbClientErr("bottom resize: alloc failed");
+		return FALSE;
+	}
+	memset(uibvnc_buffer, 255, hh*hw*4);
+	uib_update(UIB_RECALC_VNC);
+
+	client->width = hw;
+	client->frameBuffer=uibvnc_buffer;
+
+	client->format.bitsPerPixel=32;
+	client->format.redShift=24;
+	client->format.greenShift=16;
+	client->format.blueShift=8;
+
+	client->format.redMax = client->format.greenMax = client->format.blueMax = 255;
+	SetFormatAndEncodings(client);
+
+	return TRUE;
 }

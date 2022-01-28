@@ -29,7 +29,22 @@ typedef struct {
 	char user[128];
 	char pass[128];
 	int scaling;
+	int port2;
+	int enablevnc2;
+	int scaling2;
+	int controlflags; // 1: mouse to bottom, 2: buttons to bottom
 } vnc_config;
+
+typedef struct {
+	char name[128];
+	char host[128];
+	int port;
+	int audioport;
+	char audiopath[128];
+	char user[128];
+	char pass[128];
+	int scaling;
+} vnc_config_1_0;
 
 typedef struct {
 	char name[128];
@@ -58,6 +73,7 @@ static int viewOnly=0, buttonMask=0;
 /* client's pointer position */
 static int x=0,y=0;
 rfbClient* cl;
+rfbClient* cl2;
 static SDL_Surface *bgimg;
 SDL_Surface* sdl=NULL;
 static int sdl_pos_x, sdl_pos_y;
@@ -152,7 +168,7 @@ static rfbBool resize(rfbClient* client) {
 	int depth=client->format.bitsPerPixel;
 
 	if (width > 1024 || height > 1024) {
-		rfbClientErr("resize: screen size >1024px not supported");
+		rfbClientErr("resize: screen size >1024px!");
 		return FALSE;
 	}
 
@@ -186,15 +202,10 @@ static rfbBool resize(rfbClient* client) {
 	SDL_FillRect(sdl,NULL, 0x00000000);
 	SDL_Flip(sdl);
 
-	rfbClientSetClientData(client, SDL_Init, sdl);
 	client->width = sdl->pitch / (depth / 8);
 	client->frameBuffer=sdl->pixels;
 
 	client->format.bitsPerPixel=depth;
-	client->format.redShift=sdl->format->Rshift;
-	client->format.greenShift=sdl->format->Gshift;
-	client->format.blueShift=sdl->format->Bshift;
-
 	client->format.redShift=sdl->format->Rshift;
 	client->format.greenShift=sdl->format->Gshift;
 	client->format.blueShift=sdl->format->Bshift;
@@ -242,6 +253,10 @@ static void cleanup()
   if(cl)
     rfbClientCleanup(cl);
   cl = NULL;
+  if (cl2)
+    rfbClientCleanup(cl2);
+  cl2 = NULL;
+  uibvnc_cleanup();
 }
 
 // function for translating the joystick events to keyboard events (analog to old SDL version)
@@ -478,11 +493,16 @@ enum {
 	EDITCONF_NAME = 0,
 	EDITCONF_HOST,
 	EDITCONF_PORT,
-	EDITCONF_AUDIOPORT,
-	EDITCONF_AUDIOPATH,
 	EDITCONF_USER,
 	EDITCONF_PASS,
 	EDITCONF_SCALING,
+	EDITCONF_ENABLEVNC2,
+	EDITCONF_PORT2,
+	EDITCONF_SCALING2,
+	EDITCONF_CONTROL1,
+	EDITCONF_CONTROL2,
+	EDITCONF_AUDIOPORT,
+	EDITCONF_AUDIOPATH,
 	EDITCONF_END
 };
 
@@ -522,12 +542,6 @@ static int editconfig(vnc_config *c) {
 			uib_clear();
 			uib_set_colors(COL_BLACK, HEADERCOL);
 			uib_printf(	" Edit VNC Server                        ");
-			uib_set_position(0,27);
-			if (msg && showmsg) {
-				uib_printf("%-.40s",msg);
-			}
-			uib_set_position(0,29);
-			uib_printf(	"A:edit B:cancel Y:OK                    ");
 			uib_reset_colors();
 
 			uib_set_position(0,2);
@@ -535,50 +549,87 @@ static int editconfig(vnc_config *c) {
 			if (sel == EDITCONF_NAME) uib_invert_colors();
 			uib_printf(	"%-34.34s", nc.name);
 			if (sel == EDITCONF_NAME) uib_reset_colors();
-
-			uib_set_position(0,4);
+			uib_set_position(0,3);
 			uib_printf( "%s", sep);
-			uib_set_position(0,6);
+
+			uib_set_position(0,5);
 			uib_printf(	"Host: ");
 			if (sel == EDITCONF_HOST) uib_invert_colors();
 			uib_printf(	"%-34.34s", nc.host);
 			if (sel == EDITCONF_HOST) uib_reset_colors();
-			uib_set_position(0,8);
+			uib_set_position(0,7);
 			uib_printf(	"Port: ");
 			if (sel == EDITCONF_PORT)uib_invert_colors();
 			uib_printf(	"%-34d", nc.port);
 			if (sel == EDITCONF_PORT) uib_reset_colors();
-			uib_set_position(0,10);
+			uib_set_position(0,9);
+			uib_printf(	"Username: ");
+			if (sel == EDITCONF_USER) uib_invert_colors();
+			uib_printf(	"%-30.30s", nc.user);
+			if (sel == EDITCONF_USER) uib_reset_colors();
+			uib_set_position(0,11);
+			uib_printf(	"Password: ");
+			if (sel == EDITCONF_PASS) uib_invert_colors();
+			uib_printf(	"%*.*s%*s", strlen(nc.pass), strlen(nc.pass), pass, 30-strlen(nc.pass), "");
+			if (sel == EDITCONF_PASS) uib_reset_colors();
+			uib_set_position(0,13);
+			uib_printf(nc.scaling?"\x91 ":"\x90 ");
+			if (sel == EDITCONF_SCALING) uib_invert_colors();
+			uib_printf(	"Scale to fit screen");
+			if (sel == EDITCONF_SCALING) uib_reset_colors();
+			uib_set_position(0,14);
+			uib_printf(	"%s", sep);
+			uib_set_position(0,15);
+			uib_printf(nc.enablevnc2?"\x91 ":"\x90 ");
+			if (sel == EDITCONF_ENABLEVNC2) uib_invert_colors();
+			uib_printf(	"Enable bottom screen VNC");
+			if (sel == EDITCONF_ENABLEVNC2) uib_reset_colors();
+			if (nc.enablevnc2) {
+				uib_set_position(0,17);
+				uib_printf(	"Bottom Screen Port: ");
+				if (sel == EDITCONF_PORT2)uib_invert_colors();
+				uib_printf(	"%-20d", nc.port2);
+				if (sel == EDITCONF_PORT2) uib_reset_colors();
+				uib_set_position(0,19);
+				uib_printf(nc.scaling2?"\x91 ":"\x90 ");
+				if (sel == EDITCONF_SCALING2) uib_invert_colors();
+				uib_printf(	"Scale to fit bottom screen");
+				if (sel == EDITCONF_SCALING2) uib_reset_colors();
+				uib_set_position(0,21);
+				uib_printf(	"Send to bottom:");
+				uib_set_position(16,21);
+				uib_printf((nc.controlflags & 1)?"\x91 ":"\x90 ");
+				if (sel == EDITCONF_CONTROL1) uib_invert_colors();
+				uib_printf(	"Touchpad");
+				if (sel == EDITCONF_CONTROL1) uib_reset_colors();
+				uib_set_position(28,21);
+				uib_printf((nc.controlflags & 2)?"\x91 ":"\x90 ");
+				if (sel == EDITCONF_CONTROL2) uib_invert_colors();
+				uib_printf(	"Controls");
+				if (sel == EDITCONF_CONTROL2) uib_reset_colors();
+			}
+			uib_set_position(0,22);
+			uib_printf(	"%s", sep);
+
+			uib_set_position(0,23);
 			uib_printf(	"Audio Stream Port: ");
 			if (sel == EDITCONF_AUDIOPORT) uib_invert_colors();
 			uib_printf(	"%-21s", nc.audioport?itoa(nc.audioport,input,10):"");
 			if (sel == EDITCONF_AUDIOPORT) uib_reset_colors();
-			uib_set_position(0,12);
+			uib_set_position(0,25);
 			uib_printf(	"Audio Stream Path: ");
 			if (sel == EDITCONF_AUDIOPATH) uib_invert_colors();
 			uib_printf(	"%-21s", nc.audiopath);
 			if (sel == EDITCONF_AUDIOPATH) uib_reset_colors();
 
-			uib_set_position(0,14);
-			uib_printf(	"%s", sep);
-			uib_set_position(0,16);
-			uib_printf(	"Username: ");
-			if (sel == EDITCONF_USER) uib_invert_colors();
-			uib_printf(	"%-30.30s", nc.user);
-			if (sel == EDITCONF_USER) uib_reset_colors();
-			uib_set_position(0,18);
-			uib_printf(	"Password: ");
-			if (sel == EDITCONF_PASS) uib_invert_colors();
-			uib_printf(	"%*.*s%*s", strlen(nc.pass), strlen(nc.pass), pass, 30-strlen(nc.pass), "");
-			if (sel == EDITCONF_PASS) uib_reset_colors();
-
-			uib_set_position(0,20);
-			uib_printf(	"%s", sep);
-			uib_set_position(0,22);
-			uib_printf(nc.scaling?"\x91 ":"\x90 ");
-			if (sel == EDITCONF_SCALING) uib_invert_colors();
-			uib_printf(	"Scale to fit screen");
-			if (sel == EDITCONF_SCALING) uib_reset_colors();
+			uib_set_colors(COL_BLACK, HEADERCOL);
+			uib_set_position(0,27);
+			if (msg && showmsg) {
+				uib_printf("%-.40s",msg);
+			}
+			uib_set_position(0,29);
+			uib_printf(	"A:edit B:cancel Y:OK                    ");
+			uib_reset_colors();
 
 			uib_update(UIB_RECALC_MENU);
 		}
@@ -602,12 +653,14 @@ static int editconfig(vnc_config *c) {
 				case XK_g:
 				case XK_k:
 					sel = (sel+1) % EDITCONF_END;
+					if (!nc.enablevnc2 && sel==EDITCONF_PORT2) sel=EDITCONF_AUDIOPORT;
 					upd = 1;
 					break;
 				case XK_Up:
 				case XK_t:
 				case XK_i:
 					sel = (sel + EDITCONF_END - 1) % EDITCONF_END;
+					if (!nc.enablevnc2 && sel==EDITCONF_CONTROL2) sel=EDITCONF_ENABLEVNC2;
 					upd = 1;
 					break;
 				case XK_a:
@@ -693,8 +746,34 @@ static int editconfig(vnc_config *c) {
 						if(button != SWKBD_BUTTON_LEFT)
 							strcpy(nc.pass, input);
 						break;
-					case EDITCONF_SCALING:
+					case EDITCONF_SCALING: // top screen scaling on/off
 						nc.scaling = !nc.scaling;
+						break;
+					case EDITCONF_ENABLEVNC2: // enable bottom screen vnc
+						nc.enablevnc2 = !nc.enablevnc2;
+						break;
+					case EDITCONF_SCALING2: // bottom screen scaling on/off
+						nc.scaling2 = !nc.scaling2;
+						break;
+					case EDITCONF_CONTROL1: // mouse to top/bottom
+						nc.controlflags ^= 1;
+						break;
+					case EDITCONF_CONTROL2: // mouse to top/bottom
+						nc.controlflags ^= 2;
+						break;
+					case EDITCONF_PORT2: // bottom screen port
+						swkbdInit(&swkbd, SWKBD_TYPE_NUMPAD, 2, 5);
+						swkbdSetHintText(&swkbd, "Bottom Screen Port");
+						sprintf(input, "%d", nc.port2);
+						swkbdSetInitialText(&swkbd, input);
+						//swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
+						button = swkbdInputText(&swkbd, input, 6);
+						if(button != SWKBD_BUTTON_LEFT) {
+							int po = atoi(input);
+							if (po < 0) po=0;
+							if (po > 0xffff) po=0xffff;
+							nc.port2 = po;
+						}
 						break;
 					}
 					break;
@@ -734,6 +813,22 @@ static void readconfig() {
 					strcpy(conf[i].user, c[i].user);
 					strcpy(conf[i].pass, c[i].pass);
 					conf[i].scaling = 1;
+					conf[i].port2 = 0;
+				}
+			} else if (sz == sizeof(vnc_config_1_0) * NUMCONF) {
+				// starting for first time after upgrade from 1.0, read 1.0 config
+				vnc_config_1_0 c[NUMCONF] = {0};
+				fread((void*)c, sizeof(vnc_config_1_0), NUMCONF, f);
+				for(int i=0; i<NUMCONF; ++i) {
+					strcpy(conf[i].name, c[i].name);
+					strcpy(conf[i].host, c[i].host);
+					conf[i].port = c[i].port;
+					conf[i].audioport = c[i].audioport;
+					strcpy(conf[i].audiopath, c[i].audiopath);
+					strcpy(conf[i].user, c[i].user);
+					strcpy(conf[i].pass, c[i].pass);
+					conf[i].scaling = c[i].scaling;
+					conf[i].port2 = 0;
 				}
 			} else {
 				// read current config
@@ -947,14 +1042,14 @@ int main() {
 		user1=config.user;
 		pass1=config.pass;
 		uib_clear();
-		snprintf(buf, sizeof(buf),"%s:%d",config.host, config.port);
 
-		cl=rfbGetClient(8,3,4);
+		cl=rfbGetClient(8,3,4); // int bitsPerSample, int samplesPerPixel, int bytesPerPixel
 		cl->MallocFrameBuffer = resize;
 		cl->canHandleNewFBSize = TRUE;
 		cl->GetCredential = get_credential;
 		cl->GetPassword = get_password;
 
+		snprintf(buf, sizeof(buf),"%s:%d",config.host, config.port);
 		char *argv[] = {
 			"TinyVNC",
 			buf};
@@ -965,8 +1060,25 @@ int main() {
 		
 		if(!rfbInitClient(cl, &argc, argv))
 		{
+			// todo: add error handling
 			cl = NULL; /* rfbInitClient has already freed the client struct */
 		} else {
+			if (config.enablevnc2) {
+				cl2=rfbGetClient(8,3,4); // int bitsPerSample, int samplesPerPixel, int bytesPerPixel
+				cl2->MallocFrameBuffer = uibvnc_resize;
+				cl2->canHandleNewFBSize = TRUE;
+				cl2->GetCredential = get_credential;
+				cl2->GetPassword = get_password;
+
+				snprintf(buf, sizeof(buf),"%s:%d",config.host, config.port2);
+				rfbClientLog("Connecting2 to %s", buf);
+				
+				if(!rfbInitClient(cl2, &argc, argv))
+				{
+					cl2 = NULL; // todo: add error handling // rfbInitClient has already freed the client struct
+				}			
+			}
+
 			if (config.audioport) {
 				snprintf(buf, sizeof(buf),"http://%s:%d%s%s",config.host, config.audioport,
 					(config.audiopath[0]=='/'?"":"/"), config.audiopath);
@@ -999,9 +1111,24 @@ int main() {
 				run_stream();
 			// vnc integration
 			i=WaitForMessage(cl,500);
-			if(i<0) break; // error waiting
-			if(i && !HandleRFBServerMessage(cl))
-				break; // error handling
+			if(i<0) break; // todo: add error waiting
+			if(i) {
+				if (!HandleRFBServerMessage(cl)) break; // todo: add error handling
+			}
+			if (cl2) {
+				i=WaitForMessage(cl2,500);
+				if(i<0) {
+					rfbClientErr("BottomVNC: error waiting for messages");				
+				}
+				if (i) {
+					if (HandleRFBServerMessage(cl2)) {uib_update(UIB_RECALC_VNC);
+					} else {
+						rfbClientErr("BottomVNC: error processing messages");
+						rfbClientCleanup(cl2);
+						cl2=NULL;
+					}
+				}
+			}
 		}
 		if (config.audioport)
 			stop_stream();

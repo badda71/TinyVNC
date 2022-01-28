@@ -39,7 +39,8 @@ typedef enum {
 	UIB_NO = 0,
 	UIB_REPAINT = 1,
 	UIB_RECALC_KEYPRESS = 2,
-	UIB_RECALC_MENU = 4
+	UIB_RECALC_MENU = 4,
+	UIB_RECALC_VNC = 8
 } uib_action;
 
 typedef struct {
@@ -81,6 +82,10 @@ extern void uib_show_scrollbars(int x, int y, int w, int h);
 #define SCROLLBAR_WIDTH 2
 extern int uib_getBacklight();
 extern void uib_setBacklight (int on);
+
+extern rfbBool uibvnc_resize(rfbClient*);
+extern void uibvnc_cleanup();
+extern void uibvnc_dirty();
 
 // exposed variables
 extern uikbd_key uikbd_keypos[];
