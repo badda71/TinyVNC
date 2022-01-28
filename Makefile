@@ -82,7 +82,7 @@ CFLAGS	:=	-g -Wall -O3 -mword-relocations -ffast-math \
 			-fomit-frame-pointer -ffunction-sections \
 			$(ARCH)
 
-CFLAGS	+=	$(INCLUDE) -DARM11 -D_3DS -DVERSION=\"$(VERSION)\"
+CFLAGS	+=	$(INCLUDE) -DARM11 -D_3DS -D__3DS__ -DVERSION=\"$(VERSION)\"
 
 CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
 
