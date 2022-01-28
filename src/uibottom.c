@@ -928,6 +928,9 @@ static int get_timeout(enum TapState s)
 	return 0;
 }
 
+int tap_lastx=0;
+int tap_lasty=0;
+
 static void set_tap_state(enum TapState s, SDL_Event *e)
 {
     int x=-1;
@@ -958,10 +961,10 @@ static void set_tap_state(enum TapState s, SDL_Event *e)
 		}
 		ev.button.which = 1;
 		ev.button.button = SDL_BUTTON_LEFT;
-		if (e) {
-			ev.button.x = e->button.x;
-			ev.button.y = e->button.y;
-		}
+
+		ev.button.x = e?e->button.x:tap_lastx;
+		ev.button.y = e?e->button.y:tap_lasty;
+
 		SDL_PushEvent(&ev);
 		mouse_state = x;
 	}
@@ -991,8 +994,11 @@ int uib_handle_tap_processing(SDL_Event *e) {
 			--status2;
 			break;
 		}
+	} else {
+		tap_lastx = e->type == SDL_MOUSEMOTION ? e->motion.x : e->button.x;
+		tap_lasty = e->type == SDL_MOUSEMOTION ? e->motion.y : e->button.y;
 	}
-	
+
 	if (timeout && SDL_GetTicks()>=timeout) {
 		is_timeout = 1;
 		timeout = 0;

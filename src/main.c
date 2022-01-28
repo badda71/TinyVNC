@@ -32,7 +32,7 @@ typedef struct {
 	int port2;
 	int enablevnc2;
 	int scaling2;
-	int controlflags; // 1: mouse to bottom, 2: buttons to bottom
+	int eventtarget; // 0: events are sent to top, 1: events are sent to bottom
 } vnc_config;
 
 typedef struct {
@@ -331,32 +331,41 @@ static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 	case SDL_MOUSEBUTTONDOWN:
 	case SDL_MOUSEMOTION:
 	{
+		rfbClient *tcl = (cl2 && config.eventtarget)?cl2:cl;
 		if (viewOnly)
 			break;
 
 		if (e->type == SDL_MOUSEMOTION) {
-			x += e->motion.xrel;
-			if (x < 0) x=0;
-			if (x > cl->width) x=cl->width;
-			y += e->motion.yrel;
-			if (y < 0) y=0;
-			if (y > cl->height) y = cl->height;
+			if (tcl == cl) {
+				x += e->motion.xrel;
+				if (x < 0) x=0;
+				if (x > tcl->width) x=tcl->width;
+				y += e->motion.yrel;
+				if (y < 0) y=0;
+				if (y > tcl->height) y = tcl->height;
 
-			if (!config.scaling) {
-				int w = have_scrollbars & 2 ? 398 : 400;
-				int h = have_scrollbars & 1 ? 238 : 240;
-				if (x < -sdl_pos_x)		sdl_pos_x = -x;
-				if (x > -sdl_pos_x + w)	sdl_pos_x = -x + w;
-				if (y < -sdl_pos_y)		sdl_pos_y = -y;
-				if (y > -sdl_pos_y + h)	sdl_pos_y = -y + h;
-				SDL_SetVideoPosition(sdl_pos_x, sdl_pos_y);
-				uib_show_scrollbars(sdl_pos_x, sdl_pos_y, 0, 0);
+				// if not scaling and pointer is outside display area, scroll the display
+				if (!config.scaling && tcl==cl) {
+					int w = have_scrollbars & 2 ? 398 : 400;
+					int h = have_scrollbars & 1 ? 238 : 240;
+					if (x < -sdl_pos_x)		sdl_pos_x = -x;
+					if (x > -sdl_pos_x + w)	sdl_pos_x = -x + w;
+					if (y < -sdl_pos_y)		sdl_pos_y = -y;
+					if (y > -sdl_pos_y + h)	sdl_pos_y = -y + h;
+					SDL_SetVideoPosition(sdl_pos_x, sdl_pos_y);
+					uib_show_scrollbars(sdl_pos_x, sdl_pos_y, 0, 0);
+				}
+			} else {
+				x = (e->motion.x * 320) / 400;
+				y = e->motion.y;
 			}
 		}
 		else {
+			x=(e->button.x * 320) / 400;
+			y=e->button.y;
 			record_mousebutton_event(e->button.button, e->type == SDL_MOUSEBUTTONDOWN?1:0);
 		}
-		SendPointerEvent(cl, x, y, buttonMask);
+		SendPointerEvent(tcl, x, y, buttonMask);
 		buttonMask &= ~(rfbButton4Mask | rfbButton5Mask); // clear wheel up and wheel down state
 		break;
 	}
@@ -369,7 +378,7 @@ static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 		if (s>2 && s<8) {
 			// mouse button 1-5: 3-7
 			record_mousebutton_event(s-2, e->type == SDL_KEYDOWN?1:0);
-			SendPointerEvent(cl, x, y, buttonMask);
+			SendPointerEvent((cl2 && config.eventtarget)?cl2:cl, x, y, buttonMask);
 			buttonMask &= ~(rfbButton4Mask | rfbButton5Mask); // clear wheel up and wheel down state
 		} else if (s == 8 && e->type == SDL_KEYDOWN) {
 			// toggle scaling
@@ -381,7 +390,7 @@ static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 			// toggle bottom screen
 			uib_setBacklight(!uib_getBacklight());
 		} else {
-			SendKeyEvent(cl, s, e->type == SDL_KEYDOWN ? TRUE : FALSE);
+			SendKeyEvent((cl2 && config.eventtarget)?cl2:cl, s, e->type == SDL_KEYDOWN ? TRUE : FALSE);
 		}
 		break;
 	case SDL_QUIT:
@@ -499,8 +508,7 @@ enum {
 	EDITCONF_ENABLEVNC2,
 	EDITCONF_PORT2,
 	EDITCONF_SCALING2,
-	EDITCONF_CONTROL1,
-	EDITCONF_CONTROL2,
+	EDITCONF_EVENTTARGET,
 	EDITCONF_AUDIOPORT,
 	EDITCONF_AUDIOPATH,
 	EDITCONF_END
@@ -525,6 +533,11 @@ static int editconfig(vnc_config *c) {
 		strcpy(nc.audiopath,"/");
 	if (!nc.host[0])
 		nc.scaling = 1;
+	if (nc.port2 <= 0) {
+		nc.port2 = SERVER_PORT_OFFSET+1;
+		nc.scaling2 = 1;
+		nc.eventtarget = 1;
+	}
 
 	int upd = 1;
 
@@ -586,7 +599,7 @@ static int editconfig(vnc_config *c) {
 			if (sel == EDITCONF_ENABLEVNC2) uib_reset_colors();
 			if (nc.enablevnc2) {
 				uib_set_position(0,17);
-				uib_printf(	"Bottom Screen Port: ");
+				uib_printf(	"Bottom screen port: ");
 				if (sel == EDITCONF_PORT2)uib_invert_colors();
 				uib_printf(	"%-20d", nc.port2);
 				if (sel == EDITCONF_PORT2) uib_reset_colors();
@@ -596,17 +609,10 @@ static int editconfig(vnc_config *c) {
 				uib_printf(	"Scale to fit bottom screen");
 				if (sel == EDITCONF_SCALING2) uib_reset_colors();
 				uib_set_position(0,21);
-				uib_printf(	"Send to bottom:");
-				uib_set_position(16,21);
-				uib_printf((nc.controlflags & 1)?"\x91 ":"\x90 ");
-				if (sel == EDITCONF_CONTROL1) uib_invert_colors();
-				uib_printf(	"Touchpad");
-				if (sel == EDITCONF_CONTROL1) uib_reset_colors();
-				uib_set_position(28,21);
-				uib_printf((nc.controlflags & 2)?"\x91 ":"\x90 ");
-				if (sel == EDITCONF_CONTROL2) uib_invert_colors();
-				uib_printf(	"Controls");
-				if (sel == EDITCONF_CONTROL2) uib_reset_colors();
+				uib_printf(nc.eventtarget?"\x91 ":"\x90 ");
+				if (sel == EDITCONF_EVENTTARGET) uib_invert_colors();
+				uib_printf(	"Send touch/button events to bottom");
+				if (sel == EDITCONF_EVENTTARGET) uib_reset_colors();
 			}
 			uib_set_position(0,22);
 			uib_printf(	"%s", sep);
@@ -660,7 +666,7 @@ static int editconfig(vnc_config *c) {
 				case XK_t:
 				case XK_i:
 					sel = (sel + EDITCONF_END - 1) % EDITCONF_END;
-					if (!nc.enablevnc2 && sel==EDITCONF_CONTROL2) sel=EDITCONF_ENABLEVNC2;
+					if (!nc.enablevnc2 && sel==EDITCONF_EVENTTARGET) sel=EDITCONF_ENABLEVNC2;
 					upd = 1;
 					break;
 				case XK_a:
@@ -755,11 +761,8 @@ static int editconfig(vnc_config *c) {
 					case EDITCONF_SCALING2: // bottom screen scaling on/off
 						nc.scaling2 = !nc.scaling2;
 						break;
-					case EDITCONF_CONTROL1: // mouse to top/bottom
-						nc.controlflags ^= 1;
-						break;
-					case EDITCONF_CONTROL2: // mouse to top/bottom
-						nc.controlflags ^= 2;
+					case EDITCONF_EVENTTARGET: // mouse to top/bottom
+						nc.eventtarget = !nc.eventtarget;
 						break;
 					case EDITCONF_PORT2: // bottom screen port
 						swkbdInit(&swkbd, SWKBD_TYPE_NUMPAD, 2, 5);
@@ -813,7 +816,6 @@ static void readconfig() {
 					strcpy(conf[i].user, c[i].user);
 					strcpy(conf[i].pass, c[i].pass);
 					conf[i].scaling = 1;
-					conf[i].port2 = 0;
 				}
 			} else if (sz == sizeof(vnc_config_1_0) * NUMCONF) {
 				// starting for first time after upgrade from 1.0, read 1.0 config
@@ -828,7 +830,6 @@ static void readconfig() {
 					strcpy(conf[i].user, c[i].user);
 					strcpy(conf[i].pass, c[i].pass);
 					conf[i].scaling = c[i].scaling;
-					conf[i].port2 = 0;
 				}
 			} else {
 				// read current config
