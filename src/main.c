@@ -33,7 +33,13 @@ typedef struct {
 	int enablevnc2;
 	int scaling2;
 	int eventtarget; // 0: events are sent to top, 1: events are sent to bottom
+	int notaphandling;
+	int enableaudio;
+	int hidelog;
+	int backoff; // bottom backlight off?
+	int hidekb;
 } vnc_config;
+
 
 typedef struct {
 	char name[128];
@@ -509,14 +515,18 @@ enum {
 	EDITCONF_PORT2,
 	EDITCONF_SCALING2,
 	EDITCONF_EVENTTARGET,
+	EDITCONF_NOTAPHANDLING,
+	EDITCONF_ENABLEAUDIO,
 	EDITCONF_AUDIOPORT,
 	EDITCONF_AUDIOPATH,
+	EDITCONF_HIDELOG,
+	EDITCONF_BACKOFF,
+	EDITCONF_HIDEKB,
 	EDITCONF_END
 };
 
 static int editconfig(vnc_config *c) {
 	int sel = EDITCONF_HOST;
-	const char *sep = "----------------------------------------";
 	const char *pass = "****************************************";
 	char input[128];
 	int ret = 0;
@@ -531,12 +541,15 @@ static int editconfig(vnc_config *c) {
 		nc.port = SERVER_PORT_OFFSET;
 	if (!nc.audiopath[0])
 		strcpy(nc.audiopath,"/");
+	if (nc.audioport <=0)
+		nc.audioport = 80;	// default web server port
 	if (!nc.host[0])
 		nc.scaling = 1;
 	if (nc.port2 <= 0) {
 		nc.port2 = SERVER_PORT_OFFSET+1;
 		nc.scaling2 = 1;
 		nc.eventtarget = 1;
+		nc.notaphandling = 1;
 	}
 
 	int upd = 1;
@@ -554,7 +567,7 @@ static int editconfig(vnc_config *c) {
 		if (upd || showmsg != old_state) {
 			uib_clear();
 			uib_set_colors(COL_BLACK, HEADERCOL);
-			uib_printf(	" Edit VNC Server                        ");
+			uib_printf(	" Edit VNC Session                       ");
 			uib_reset_colors();
 
 			uib_set_position(0,2);
@@ -562,71 +575,109 @@ static int editconfig(vnc_config *c) {
 			if (sel == EDITCONF_NAME) uib_invert_colors();
 			uib_printf(	"%-34.34s", nc.name);
 			if (sel == EDITCONF_NAME) uib_reset_colors();
-			uib_set_position(0,3);
-			uib_printf( "%s", sep);
 
+			uib_set_colors(HEADERCOL, COL_BLACK);
+			uib_set_position(0,4);
+			uib_printf( "--------- Main VNC connection ----------");
+			uib_reset_colors();
 			uib_set_position(0,5);
 			uib_printf(	"Host: ");
 			if (sel == EDITCONF_HOST) uib_invert_colors();
 			uib_printf(	"%-34.34s", nc.host);
 			if (sel == EDITCONF_HOST) uib_reset_colors();
-			uib_set_position(0,7);
+			uib_set_position(0,6);
 			uib_printf(	"Port: ");
 			if (sel == EDITCONF_PORT)uib_invert_colors();
 			uib_printf(	"%-34d", nc.port);
 			if (sel == EDITCONF_PORT) uib_reset_colors();
-			uib_set_position(0,9);
+			uib_set_position(0,7);
 			uib_printf(	"Username: ");
 			if (sel == EDITCONF_USER) uib_invert_colors();
 			uib_printf(	"%-30.30s", nc.user);
 			if (sel == EDITCONF_USER) uib_reset_colors();
-			uib_set_position(0,11);
+			uib_set_position(0,8);
 			uib_printf(	"Password: ");
 			if (sel == EDITCONF_PASS) uib_invert_colors();
 			uib_printf(	"%*.*s%*s", strlen(nc.pass), strlen(nc.pass), pass, 30-strlen(nc.pass), "");
 			if (sel == EDITCONF_PASS) uib_reset_colors();
-			uib_set_position(0,13);
+			uib_set_position(0,9);
 			uib_printf(nc.scaling?"\x91 ":"\x90 ");
 			if (sel == EDITCONF_SCALING) uib_invert_colors();
 			uib_printf(	"Scale to fit screen");
 			if (sel == EDITCONF_SCALING) uib_reset_colors();
-			uib_set_position(0,14);
-			uib_printf(	"%s", sep);
-			uib_set_position(0,15);
+
+			uib_set_colors(HEADERCOL, COL_BLACK);
+			uib_set_position(0,11);
+			uib_printf(	"--------- 2nd VNC connection -----------" );
+			uib_reset_colors();
+			uib_set_position(0,12);
 			uib_printf(nc.enablevnc2?"\x91 ":"\x90 ");
 			if (sel == EDITCONF_ENABLEVNC2) uib_invert_colors();
 			uib_printf(	"Enable bottom screen VNC");
 			if (sel == EDITCONF_ENABLEVNC2) uib_reset_colors();
 			if (nc.enablevnc2) {
-				uib_set_position(0,17);
+				uib_set_position(0,13);
 				uib_printf(	"Bottom screen port: ");
 				if (sel == EDITCONF_PORT2)uib_invert_colors();
 				uib_printf(	"%-20d", nc.port2);
 				if (sel == EDITCONF_PORT2) uib_reset_colors();
-				uib_set_position(0,19);
+				uib_set_position(0,14);
 				uib_printf(nc.scaling2?"\x91 ":"\x90 ");
 				if (sel == EDITCONF_SCALING2) uib_invert_colors();
 				uib_printf(	"Scale to fit bottom screen");
 				if (sel == EDITCONF_SCALING2) uib_reset_colors();
-				uib_set_position(0,21);
+				uib_set_position(0,15);
 				uib_printf(nc.eventtarget?"\x91 ":"\x90 ");
 				if (sel == EDITCONF_EVENTTARGET) uib_invert_colors();
 				uib_printf(	"Send touch/button events to bottom");
 				if (sel == EDITCONF_EVENTTARGET) uib_reset_colors();
+				uib_set_position(0,16);
+				uib_printf(nc.notaphandling?"\x91 ":"\x90 ");
+				if (sel == EDITCONF_NOTAPHANDLING) uib_invert_colors();
+				uib_printf(	"Disable tap gestures");
+				if (sel == EDITCONF_NOTAPHANDLING) uib_reset_colors();
 			}
-			uib_set_position(0,22);
-			uib_printf(	"%s", sep);
 
+			uib_set_colors(HEADERCOL, COL_BLACK);
+			uib_set_position(0,18);
+			uib_printf(	"--------- Audio Stream -----------------" );
+			uib_reset_colors();
+			uib_set_position(0,19);
+			uib_printf(nc.enableaudio?"\x91 ":"\x90 ");
+			if (sel == EDITCONF_ENABLEAUDIO) uib_invert_colors();
+			uib_printf(	"Enable audio stream");
+			if (sel == EDITCONF_ENABLEAUDIO) uib_reset_colors();
+			if (nc.enableaudio) {
+				uib_set_position(0,20);
+				uib_printf(	"Audio Stream Port: ");
+				if (sel == EDITCONF_AUDIOPORT) uib_invert_colors();
+				uib_printf(	"%-21s", nc.audioport?itoa(nc.audioport,input,10):"");
+				if (sel == EDITCONF_AUDIOPORT) uib_reset_colors();
+				uib_set_position(0,21);
+				uib_printf(	"Audio Stream Path: ");
+				if (sel == EDITCONF_AUDIOPATH) uib_invert_colors();
+				uib_printf(	"%-21s", nc.audiopath);
+				if (sel == EDITCONF_AUDIOPATH) uib_reset_colors();
+			}
+			uib_set_colors(HEADERCOL, COL_BLACK);
 			uib_set_position(0,23);
-			uib_printf(	"Audio Stream Port: ");
-			if (sel == EDITCONF_AUDIOPORT) uib_invert_colors();
-			uib_printf(	"%-21s", nc.audioport?itoa(nc.audioport,input,10):"");
-			if (sel == EDITCONF_AUDIOPORT) uib_reset_colors();
+			uib_printf(	"--------- Misc Settings ----------------" );
+			uib_reset_colors();
+			uib_set_position(0,24);
+			uib_printf(nc.hidelog?"\x91 ":"\x90 ");
+			if (sel == EDITCONF_HIDELOG) uib_invert_colors();
+			uib_printf(	"Hide Log");
+			if (sel == EDITCONF_HIDELOG) uib_reset_colors();
+			uib_set_position(17,24);
+			uib_printf(nc.backoff?"\x91 ":"\x90 ");
+			if (sel == EDITCONF_BACKOFF) uib_invert_colors();
+			uib_printf(	"Bottom backlight off");
+			if (sel == EDITCONF_BACKOFF) uib_reset_colors();
 			uib_set_position(0,25);
-			uib_printf(	"Audio Stream Path: ");
-			if (sel == EDITCONF_AUDIOPATH) uib_invert_colors();
-			uib_printf(	"%-21s", nc.audiopath);
-			if (sel == EDITCONF_AUDIOPATH) uib_reset_colors();
+			uib_printf(nc.hidekb?"\x91 ":"\x90 ");
+			if (sel == EDITCONF_HIDEKB) uib_invert_colors();
+			uib_printf(	"Hide Keyboard");
+			if (sel == EDITCONF_HIDEKB) uib_reset_colors();
 
 			uib_set_colors(COL_BLACK, HEADERCOL);
 			uib_set_position(0,27);
@@ -656,17 +707,25 @@ static int editconfig(vnc_config *c) {
 					} else ret=1;
 					break;
 				case XK_Down:
+				case XK_Right:
 				case XK_g:
+				case XK_h:
 				case XK_k:
+				case XK_l:
 					sel = (sel+1) % EDITCONF_END;
-					if (!nc.enablevnc2 && sel==EDITCONF_PORT2) sel=EDITCONF_AUDIOPORT;
+					if (!nc.enablevnc2 && sel==EDITCONF_PORT2) sel=EDITCONF_ENABLEAUDIO;
+					if (!nc.enableaudio && sel==EDITCONF_AUDIOPORT) sel=EDITCONF_HIDELOG;
 					upd = 1;
 					break;
 				case XK_Up:
+				case XK_Left:
 				case XK_t:
+				case XK_f:
 				case XK_i:
+				case XK_j:
 					sel = (sel + EDITCONF_END - 1) % EDITCONF_END;
-					if (!nc.enablevnc2 && sel==EDITCONF_EVENTTARGET) sel=EDITCONF_ENABLEVNC2;
+					if (!nc.enablevnc2 && sel==EDITCONF_NOTAPHANDLING) sel=EDITCONF_ENABLEVNC2;
+					if (!nc.enableaudio && sel==EDITCONF_AUDIOPATH) sel=EDITCONF_ENABLEAUDIO;
 					upd = 1;
 					break;
 				case XK_a:
@@ -701,34 +760,10 @@ static int editconfig(vnc_config *c) {
 						button = swkbdInputText(&swkbd, input, 6);
 						if(button != SWKBD_BUTTON_LEFT) {
 							int po = atoi(input);
-							if (po < 0) po=0;
+							if (po <= 0) po=1;
 							if (po > 0xffff) po=0xffff;
 							checkset(nc.name, nc.host, po, nc.user, nc.host, nc.port, nc.user);
 							nc.port = po;
-						}
-						break;
-					case EDITCONF_AUDIOPORT: // audio port
-						swkbdInit(&swkbd, SWKBD_TYPE_NUMPAD, 2, 5);
-						swkbdSetHintText(&swkbd, "Audio Port");
-						sprintf(input, "%d", nc.audioport);
-						swkbdSetInitialText(&swkbd, input);
-						//swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
-						button = swkbdInputText(&swkbd, input, 6);
-						if(button != SWKBD_BUTTON_LEFT) {
-							int po = atoi(input);
-							if (po < 0) po=0;
-							if (po > 0xffff) po=0xffff;
-							nc.audioport = po;
-						}
-						break;
-					case EDITCONF_AUDIOPATH: // audio path
-						swkbdInit(&swkbd, SWKBD_TYPE_QWERTY, 2, sizeof(input)-1);
-						swkbdSetHintText(&swkbd, "Audio Path");
-						swkbdSetInitialText(&swkbd, nc.audiopath);
-						swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
-						button = swkbdInputText(&swkbd, input, sizeof(input));
-						if(button != SWKBD_BUTTON_LEFT) {
-							snprintf(nc.audiopath, sizeof(nc.audiopath), "%s%s", input[0]=='/'?"":"/", input);
 						}
 						break;
 					case EDITCONF_USER: // username
@@ -758,12 +793,6 @@ static int editconfig(vnc_config *c) {
 					case EDITCONF_ENABLEVNC2: // enable bottom screen vnc
 						nc.enablevnc2 = !nc.enablevnc2;
 						break;
-					case EDITCONF_SCALING2: // bottom screen scaling on/off
-						nc.scaling2 = !nc.scaling2;
-						break;
-					case EDITCONF_EVENTTARGET: // mouse to top/bottom
-						nc.eventtarget = !nc.eventtarget;
-						break;
 					case EDITCONF_PORT2: // bottom screen port
 						swkbdInit(&swkbd, SWKBD_TYPE_NUMPAD, 2, 5);
 						swkbdSetHintText(&swkbd, "Bottom Screen Port");
@@ -773,10 +802,55 @@ static int editconfig(vnc_config *c) {
 						button = swkbdInputText(&swkbd, input, 6);
 						if(button != SWKBD_BUTTON_LEFT) {
 							int po = atoi(input);
-							if (po < 0) po=0;
+							if (po <= 0) po=1;
 							if (po > 0xffff) po=0xffff;
 							nc.port2 = po;
 						}
+						break;
+					case EDITCONF_SCALING2: // bottom screen scaling on/off
+						nc.scaling2 = !nc.scaling2;
+						break;
+					case EDITCONF_EVENTTARGET: // mouse to top/bottom
+						nc.eventtarget = !nc.eventtarget;
+						break;
+					case EDITCONF_NOTAPHANDLING: // disable tap handling on touch screen
+						nc.notaphandling = !nc.notaphandling;
+						break;
+					case EDITCONF_ENABLEAUDIO: // enable audio stream
+						nc.enableaudio = !nc.enableaudio;
+						break;
+					case EDITCONF_AUDIOPORT: // audio port
+						swkbdInit(&swkbd, SWKBD_TYPE_NUMPAD, 2, 5);
+						swkbdSetHintText(&swkbd, "Audio Port");
+						sprintf(input, "%d", nc.audioport);
+						swkbdSetInitialText(&swkbd, input);
+						//swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
+						button = swkbdInputText(&swkbd, input, 6);
+						if(button != SWKBD_BUTTON_LEFT) {
+							int po = atoi(input);
+							if (po <= 0) po=1;
+							if (po > 0xffff) po=0xffff;
+							nc.audioport = po;
+						}
+						break;
+					case EDITCONF_AUDIOPATH: // audio path
+						swkbdInit(&swkbd, SWKBD_TYPE_QWERTY, 2, sizeof(input)-1);
+						swkbdSetHintText(&swkbd, "Audio Path");
+						swkbdSetInitialText(&swkbd, nc.audiopath);
+						swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
+						button = swkbdInputText(&swkbd, input, sizeof(input));
+						if(button != SWKBD_BUTTON_LEFT) {
+							snprintf(nc.audiopath, sizeof(nc.audiopath), "%s%s", input[0]=='/'?"":"/", input);
+						}
+						break;
+					case EDITCONF_HIDELOG: // hide log from bottom screen
+						nc.hidelog = !nc.hidelog;
+						break;
+					case EDITCONF_BACKOFF: // turn off bottom screen backlight
+						nc.backoff = !nc.backoff;
+						break;
+					case EDITCONF_HIDEKB: // hide on-screen keyboard  from bottom screen
+						nc.hidekb = !nc.hidekb;
 						break;
 					}
 					break;
@@ -1080,7 +1154,7 @@ int main() {
 				}			
 			}
 
-			if (config.audioport) {
+			if (config.enableaudio) {
 				snprintf(buf, sizeof(buf),"http://%s:%d%s%s",config.host, config.audioport,
 					(config.audiopath[0]=='/'?"":"/"), config.audiopath);
 				start_stream(buf, config.user, config.pass);
@@ -1108,7 +1182,7 @@ int main() {
 			}
 			if (ext) break;
 			// audio stream
-			if (config.audioport)
+			if (config.enableaudio)
 				run_stream();
 			// vnc integration
 			i=WaitForMessage(cl,500);
@@ -1131,7 +1205,7 @@ int main() {
 				}
 			}
 		}
-		if (config.audioport)
+		if (config.enableaudio)
 			stop_stream();
 		cleanup();
 		uib_enable_keyboard(0);
