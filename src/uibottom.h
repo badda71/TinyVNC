@@ -74,7 +74,7 @@ extern SDL_Surface *myIMG_Load(char *fname);
 
 
 extern void uib_update(int what);
-extern int uib_handle_event(SDL_Event *);
+extern int uib_handle_event(SDL_Event *, int taphandling);
 extern void uib_init();
 extern int uib_handle_tap_processing(SDL_Event *e);
 extern void uib_enable_keyboard(int enable);

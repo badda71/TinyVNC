@@ -367,8 +367,10 @@ static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 			}
 		}
 		else {
-			x=(e->button.x * 320) / 400;
-			y=e->button.y;
+			if (tcl != cl) {
+				x=(e->button.x * 320) / 400;
+				y=e->button.y;
+			}
 			record_mousebutton_event(e->button.button, e->type == SDL_MOUSEBUTTONDOWN?1:0);
 		}
 		SendPointerEvent(tcl, x, y, buttonMask);
@@ -631,11 +633,13 @@ static int editconfig(vnc_config *c) {
 				if (sel == EDITCONF_EVENTTARGET) uib_invert_colors();
 				uib_printf(	"Send touch/button events to bottom");
 				if (sel == EDITCONF_EVENTTARGET) uib_reset_colors();
-				uib_set_position(0,16);
-				uib_printf(nc.notaphandling?"\x91 ":"\x90 ");
-				if (sel == EDITCONF_NOTAPHANDLING) uib_invert_colors();
-				uib_printf(	"Disable tap gestures");
-				if (sel == EDITCONF_NOTAPHANDLING) uib_reset_colors();
+				if (nc.eventtarget) {
+					uib_set_position(0,16);
+					uib_printf(nc.notaphandling?"\x91 ":"\x90 ");
+					if (sel == EDITCONF_NOTAPHANDLING) uib_invert_colors();
+					uib_printf(	"Disable tap gestures");
+					if (sel == EDITCONF_NOTAPHANDLING) uib_reset_colors();
+				}
 			}
 
 			uib_set_colors(HEADERCOL, COL_BLACK);
@@ -692,7 +696,7 @@ static int editconfig(vnc_config *c) {
 		}
 		SDL_Flip(sdl);
 		while (SDL_PollEvent(&e)) {
-			if (uib_handle_event(&e)) continue;
+			if (uib_handle_event(&e, 0)) continue;
 			if (e.type == SDL_QUIT)
 				safeexit();
 			map_joy_to_key(&e);
@@ -715,6 +719,7 @@ static int editconfig(vnc_config *c) {
 					sel = (sel+1) % EDITCONF_END;
 					if (!nc.enablevnc2 && sel==EDITCONF_PORT2) sel=EDITCONF_ENABLEAUDIO;
 					if (!nc.enableaudio && sel==EDITCONF_AUDIOPORT) sel=EDITCONF_HIDELOG;
+					if (!nc.eventtarget && sel==EDITCONF_NOTAPHANDLING) sel=EDITCONF_ENABLEAUDIO;
 					upd = 1;
 					break;
 				case XK_Up:
@@ -726,6 +731,7 @@ static int editconfig(vnc_config *c) {
 					sel = (sel + EDITCONF_END - 1) % EDITCONF_END;
 					if (!nc.enablevnc2 && sel==EDITCONF_NOTAPHANDLING) sel=EDITCONF_ENABLEVNC2;
 					if (!nc.enableaudio && sel==EDITCONF_AUDIOPATH) sel=EDITCONF_ENABLEAUDIO;
+					if (!nc.eventtarget && sel==EDITCONF_NOTAPHANDLING) sel=EDITCONF_EVENTTARGET;
 					upd = 1;
 					break;
 				case XK_a:
@@ -942,7 +948,7 @@ static int getconfig(vnc_config *c) {
 		}
 		SDL_Flip(sdl);
 		while (SDL_PollEvent(&e)) {
-			if (uib_handle_event(&e)) continue;
+			if (uib_handle_event(&e, 0)) continue;
 			if (e.type == SDL_QUIT)
 				safeexit();
 			map_joy_to_key(&e);
@@ -1168,11 +1174,14 @@ int main() {
 		while(cl) {
 			// handle events
 			// must be called once per frame to expire mouse button presses
-			uib_handle_tap_processing(NULL);
+			int taphandling = (cl2 && config.eventtarget) ? !config.notaphandling : 1;
+
+			if (taphandling)
+				uib_handle_tap_processing(NULL);
 			SDL_Flip(sdl);
 			checkKeyRepeat();
 			while (SDL_PollEvent(&e)) {
-				if (uib_handle_event(&e)) continue;
+				if (uib_handle_event(&e, taphandling)) continue;
 				if(!handleSDLEvent(cl, &e)) {
 					uib_setBacklight(1);
 					rfbClientLog("Disconnecting");
@@ -1218,7 +1227,7 @@ int main() {
 				SDL_Flip(sdl);
 				checkKeyRepeat();
 				if (SDL_PollEvent(&e)) {
-					if (uib_handle_event(&e)) continue;
+					if (uib_handle_event(&e, 0)) continue;
 					map_joy_to_key(&e);
 					if (e.type == SDL_KEYDOWN) {
 						if (e.key.keysym.sym == XK_a)
