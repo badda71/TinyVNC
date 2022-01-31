@@ -373,6 +373,7 @@ static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 			}
 			record_mousebutton_event(e->button.button, e->type == SDL_MOUSEBUTTONDOWN?1:0);
 		}
+		//log_citra("pointer event: x %d, y %d, mask %p",x, y, buttonMask);
 		SendPointerEvent(tcl, x, y, buttonMask);
 		buttonMask &= ~(rfbButton4Mask | rfbButton5Mask); // clear wheel up and wheel down state
 		break;
@@ -393,7 +394,7 @@ static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 			config.scaling = !config.scaling;
 			// resize the SDL screen
 			resize(cl);
-			SendFramebufferUpdateRequest(cl, 0, 0, cl->width, cl->height, false);
+			SendFramebufferUpdateRequest(cl, 0, 0, cl->width, cl->height, FALSE);
 		} else if (s == 9 && e->type == SDL_KEYDOWN) {
 			// toggle bottom screen
 			uib_setBacklight(!uib_getBacklight());
@@ -1103,7 +1104,7 @@ int main() {
 	SDL_BlitSurface(bgimg, NULL, sdl, NULL);
 	SDL_Flip(sdl);
 
-	mkpath(config_filename, false);
+	mkpath(config_filename, 0);
 
 	SOC_buffer = (u32*)memalign(SOC_ALIGN, SOC_BUFFERSIZE);
 	socInit(SOC_buffer, SOC_BUFFERSIZE);
@@ -1171,17 +1172,22 @@ int main() {
 		// clear mouse state
 		buttonMask = 0;
 		int ext=0;
+		int evtarget = 10, taphandling = 1;
 		while(cl) {
+			if (evtarget != (cl2!=NULL && config.eventtarget!=0)) {
+				evtarget = (cl2!=NULL && config.eventtarget!=0);
+				cl->appData.useRemoteCursor = evtarget;
+				if (cl2) cl2->appData.useRemoteCursor = !evtarget;
+				taphandling = evtarget ? !config.notaphandling : 1;
+			}
 			// handle events
-			// must be called once per frame to expire mouse button presses
-			int taphandling = (cl2 && config.eventtarget) ? !config.notaphandling : 1;
-
 			if (taphandling)
+				// must be called once per frame to expire mouse button presses
 				uib_handle_tap_processing(NULL);
 			SDL_Flip(sdl);
 			checkKeyRepeat();
 			while (SDL_PollEvent(&e)) {
-				if (uib_handle_event(&e, taphandling)) continue;
+				if (uib_handle_event(&e, taphandling | (evtarget ? 2 : 0 ))) continue;
 				if(!handleSDLEvent(cl, &e)) {
 					uib_setBacklight(1);
 					rfbClientLog("Disconnecting");
