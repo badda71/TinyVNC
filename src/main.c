@@ -134,7 +134,7 @@ static void vwrite_log(const char *format, va_list arg, int channel)
 		vsnprintf(buf, i+1, format, arg);
 		while (i && buf[i-1]=='\n') buf[--i]=0; // strip trailing newlines
 		if (channel & 2) svcOutputDebugString(buf, i);
-		if (channel & 1) {
+		if (channel & 1 && !config.hidelog) {
 			uib_printf("%s\n",buf);
 			uib_update(UIB_RECALC_MENU);
 			SDL_Flip(sdl);
@@ -1124,6 +1124,7 @@ int main() {
 		user1=config.user;
 		pass1=config.pass;
 		uib_clear();
+		uib_update(UIB_RECALC_MENU);
 
 		cl=rfbGetClient(8,3,4); // int bitsPerSample, int samplesPerPixel, int bytesPerPixel
 		cl->MallocFrameBuffer = resize;
