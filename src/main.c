@@ -1123,6 +1123,7 @@ int main() {
 		
 		user1=config.user;
 		pass1=config.pass;
+		if (config.backoff) uib_setBacklight (0);
 		uib_clear();
 		uib_update(UIB_RECALC_MENU);
 
@@ -1167,7 +1168,7 @@ int main() {
 					(config.audiopath[0]=='/'?"":"/"), config.audiopath);
 				start_stream(buf, config.user, config.pass);
 			}
-			uib_enable_keyboard(1);
+			if (!config.hidekb) uib_enable_keyboard(1);
 		}
 
 		// clear mouse state
@@ -1190,7 +1191,6 @@ int main() {
 			while (SDL_PollEvent(&e)) {
 				if (uib_handle_event(&e, taphandling | (evtarget ? 2 : 0 ))) continue;
 				if(!handleSDLEvent(cl, &e)) {
-					uib_setBacklight(1);
 					rfbClientLog("Disconnecting");
 					ext=1;
 					break;
@@ -1225,6 +1225,7 @@ int main() {
 			stop_stream();
 		cleanup();
 		uib_enable_keyboard(0);
+		uib_setBacklight(1);
 		if (!ext) { // means, we exited due to an error
 			uib_set_colors(COL_BLACK, HEADERCOL);
 			uib_printf("A:retry B:quit                          ");
