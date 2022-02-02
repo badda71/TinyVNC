@@ -187,7 +187,7 @@ static rfbBool resize(rfbClient* client) {
 	if (config.scaling) {
 		SDL_ResetVideoPosition();
 		if (width > 400 || height > 240) {
-			flags |= ((width * 1000) / 400 > (height * 1000) / 240)? SDL_FITWIDTH : SDL_FITHEIGHT;
+			flags |= ((width * 1024) / 400 > (height * 1024) / 240)? SDL_FITWIDTH : SDL_FITHEIGHT;
 		}
 	} else {
 		have_scrollbars = (width>400?1:0) + (height>240?2:0);

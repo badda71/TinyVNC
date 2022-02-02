@@ -493,6 +493,11 @@ static inline void requestRepaint() {
 	svcSignalEvent(repaintRequired);
 }
 
+static int uibvnc_w=320;
+static int uibvnc_h=240;
+static int uibvnc_x=0;
+static int uibvnc_y=0;
+
 static void uib_repaint(void *param) {
 	ENTER
 	
@@ -513,7 +518,7 @@ static void uib_repaint(void *param) {
 
 	// bottom VNC screen
 	if (uibvnc_buffer) {
-		drawImage(&uibvnc_spr, 0, 0, 320, 240, 0);
+		drawImage(&uibvnc_spr, uibvnc_x, uibvnc_y, uibvnc_w, uibvnc_h, 0);
 	} else { 
 		// menu
 		int y = kb_enabled ? MIN(0,-240 + kb_y_pos + (29-uib_y) * 8) : 0;
@@ -869,7 +874,7 @@ void uib_update(int what)
 			makeImage(&menu_spr, menu_img->pixels, menu_img->w, menu_img->h, 1);
 		}
 		if (uib_must_redraw & UIB_RECALC_VNC) {
-			bufferSetMask(uibvnc_buffer, 320, 240, 512);
+			bufferSetMask(uibvnc_buffer, uibvnc_spr.w, uibvnc_spr.h, mynext_pow2(uibvnc_spr.w));
 			makeImage(&uibvnc_spr, uibvnc_buffer, uibvnc_spr.w, uibvnc_spr.h, 1);
 		}
 		uib_must_redraw = UIB_NO;
@@ -1281,6 +1286,12 @@ rfbBool uibvnc_resize(rfbClient* client) {
 
 	client->format.redMax = client->format.greenMax = client->format.blueMax = 255;
 	SetFormatAndEncodings(client);
+
+	int scale1024 = MIN (1024, MIN(320*1024 / uibvnc_spr.w, 240*1024 / uibvnc_spr.h)); // no upscaling (scale max 1024)
+	uibvnc_w = uibvnc_spr.w * scale1024 / 1024;
+	uibvnc_h = uibvnc_spr.h * scale1024 / 1024;
+	uibvnc_x = (320 - uibvnc_w) / 2;
+	uibvnc_y = (240 - uibvnc_h) / 2;
 
 	return TRUE;
 }
