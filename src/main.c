@@ -194,7 +194,9 @@ static rfbBool resize(rfbClient* client) {
 		int w = have_scrollbars & 2 ? 398 : 400;
 		int h = have_scrollbars & 1 ? 238 : 240;
 		// center screen around mouse cursor if not scaling
-		SDL_SetVideoPosition(sdl_pos_x = LIMIT(-x+w/2, -width+w,0), sdl_pos_y = LIMIT( -y+h/2, -height+h, 0));
+		sdl_pos_x = width > w ? LIMIT(-x+w/2, -width+w, 0) : (w - width) / 2;
+		sdl_pos_y = height > h ? LIMIT( -y+h/2, -height+h, 0) : (h - height) / 2;
+		SDL_SetVideoPosition(sdl_pos_x, sdl_pos_y);
 		uib_show_scrollbars(sdl_pos_x, sdl_pos_y, width, height);
 	}
 
@@ -327,31 +329,49 @@ static void record_mousebutton_event(int which, int pressed) {
 	}
 }
 
+extern int uibvnc_w, uibvnc_h, uibvnc_x, uibvnc_y;
+
 // event handler while VNC is running
 static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 {
+	// pointer positions
+	static double xf=0.0,yf=0.0;
+	
 	int s;
 	map_joy_to_key(e);
+
 	switch(e->type) {
 	case SDL_MOUSEBUTTONUP:
 	case SDL_MOUSEBUTTONDOWN:
 	case SDL_MOUSEMOTION:
 	{
-		rfbClient *tcl = (cl2 && config.eventtarget)?cl2:cl;
 		if (viewOnly)
 			break;
 
+		rfbClient *tcl = (cl2 && config.eventtarget)?cl2:cl;
+
+		if (tcl != cl) { // bottom screen always uses direct coodinates, not relative
+			// get and translate the positions
+			x = (((e->type == SDL_MOUSEMOTION ? e->motion.x : e->button.x) * 320 / cl->updateRect.w - uibvnc_x) * tcl->updateRect.w) / uibvnc_w;
+			y = (((e->type == SDL_MOUSEMOTION ? e->motion.y : e->button.y) * 240 / cl->updateRect.h - uibvnc_y) * tcl->updateRect.h) / uibvnc_h;
+			xf=(double)x;
+			yf=(double)y;
+		}
+
 		if (e->type == SDL_MOUSEMOTION) {
 			if (tcl == cl) {
-				x += e->motion.xrel;
-				if (x < 0) x=0;
-				if (x > tcl->width) x=tcl->width;
-				y += e->motion.yrel;
-				if (y < 0) y=0;
-				if (y > tcl->height) y = tcl->height;
+				double xrel = (double)e->motion.xrel * (config.scaling?1.0:(400.0 / (double)cl->updateRect.w));
+				double yrel = (double)e->motion.yrel * (config.scaling?1.0:(240.0 / (double)cl->updateRect.h));
+				xf += xrel;
+				if (xf < 0.0) xf=0.0;
+				if (xf > (double)tcl->updateRect.w) xf=(double)tcl->updateRect.w;
+				yf += yrel;
+				if (yf < 0.0) yf=0.0;
+				if (yf > (double)tcl->updateRect.h) yf = (double)tcl->updateRect.h;
+				x=(int)xf; y=(int)yf;
 
 				// if not scaling and pointer is outside display area, scroll the display
-				if (!config.scaling && tcl==cl) {
+				if (!config.scaling) {
 					int w = have_scrollbars & 2 ? 398 : 400;
 					int h = have_scrollbars & 1 ? 238 : 240;
 					if (x < -sdl_pos_x)		sdl_pos_x = -x;
@@ -361,16 +381,9 @@ static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 					SDL_SetVideoPosition(sdl_pos_x, sdl_pos_y);
 					uib_show_scrollbars(sdl_pos_x, sdl_pos_y, 0, 0);
 				}
-			} else {
-				x = (e->motion.x * 320) / 400;
-				y = e->motion.y;
 			}
 		}
 		else {
-			if (tcl != cl) {
-				x=(e->button.x * 320) / 400;
-				y=e->button.y;
-			}
 			record_mousebutton_event(e->button.button, e->type == SDL_MOUSEBUTTONDOWN?1:0);
 		}
 		//log_citra("pointer event: x %d, y %d, mask %p",x, y, buttonMask);

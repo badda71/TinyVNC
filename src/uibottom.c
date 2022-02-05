@@ -493,10 +493,10 @@ static inline void requestRepaint() {
 	svcSignalEvent(repaintRequired);
 }
 
-static int uibvnc_w=320;
-static int uibvnc_h=240;
-static int uibvnc_x=0;
-static int uibvnc_y=0;
+int uibvnc_w=320;
+int uibvnc_h=240;
+int uibvnc_x=0;
+int uibvnc_y=0;
 
 static void uib_repaint(void *param) {
 	ENTER
