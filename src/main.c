@@ -77,7 +77,7 @@ static int cpy = -1;
 static u32 *SOC_buffer = NULL;
 static int viewOnly=0, buttonMask=0;
 /* client's pointer position */
-static int x=0,y=0;
+int x=0,y=0;
 rfbClient* cl;
 rfbClient* cl2;
 static SDL_Surface *bgimg;
@@ -189,6 +189,7 @@ static rfbBool resize(rfbClient* client) {
 		if (width > 400 || height > 240) {
 			flags |= ((width * 1024) / 400 > (height * 1024) / 240)? SDL_FITWIDTH : SDL_FITHEIGHT;
 		}
+		uib_show_scrollbars(0,0,400,240);
 	} else {
 		have_scrollbars = (width>400?1:0) + (height>240?2:0);
 		int w = have_scrollbars & 2 ? 398 : 400;
@@ -330,6 +331,7 @@ static void record_mousebutton_event(int which, int pressed) {
 }
 
 extern int uibvnc_w, uibvnc_h, uibvnc_x, uibvnc_y;
+#define SCROLL_THRESHOLD 10
 
 // event handler while VNC is running
 static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
@@ -352,10 +354,23 @@ static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 
 		if (tcl != cl) { // bottom screen always uses direct coodinates, not relative
 			// get and translate the positions
-			x = (((e->type == SDL_MOUSEMOTION ? e->motion.x : e->button.x) * 320 / cl->updateRect.w - uibvnc_x) * tcl->updateRect.w) / uibvnc_w;
-			y = (((e->type == SDL_MOUSEMOTION ? e->motion.y : e->button.y) * 240 / cl->updateRect.h - uibvnc_y) * tcl->updateRect.h) / uibvnc_h;
+			int x1=(e->type == SDL_MOUSEMOTION ? e->motion.x : e->button.x) * 320 / cl->updateRect.w;
+			int y1=(e->type == SDL_MOUSEMOTION ? e->motion.y : e->button.y) * 240 / cl->updateRect.h;
+			x = ((x1 - uibvnc_x) * tcl->updateRect.w) / uibvnc_w;
+			y = ((y1 - uibvnc_y) * tcl->updateRect.h) / uibvnc_h;
 			xf=(double)x;
 			yf=(double)y;
+			// scrolling
+			if (!config.scaling2) {
+				if (uibvnc_w > 320) {
+					if (x1 >= 320 - SCROLL_THRESHOLD && uibvnc_x > 320-uibvnc_w) uibvnc_x--;
+					if (x1 < SCROLL_THRESHOLD && uibvnc_x < 0) uibvnc_x++;
+				}
+				if (uibvnc_h > 240) {
+					if (y1 >= 240 - SCROLL_THRESHOLD && uibvnc_y > 240-uibvnc_h) uibvnc_y--;
+					if (y1 < SCROLL_THRESHOLD && uibvnc_y < 0) uibvnc_y++;
+				}
+			}
 		}
 
 		if (e->type == SDL_MOUSEMOTION) {
@@ -1166,14 +1181,14 @@ int main() {
 				cl2->canHandleNewFBSize = TRUE;
 				cl2->GetCredential = get_credential;
 				cl2->GetPassword = get_password;
-
+				uibvnc_setScaling(config.scaling2);
 				snprintf(buf, sizeof(buf),"%s:%d",config.host, config.port2);
 				rfbClientLog("Connecting2 to %s", buf);
 				
 				if(!rfbInitClient(cl2, &argc, argv))
 				{
 					cl2 = NULL; // todo: add error handling // rfbInitClient has already freed the client struct
-				}			
+				}
 			}
 
 			if (config.enableaudio) {

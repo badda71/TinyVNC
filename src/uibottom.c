@@ -159,6 +159,7 @@ static SDL_Color bck_col = DEF_BCK_COL;
 static int top_scrollbars = 0;
 static int sb_pos_hx, sb_pos_hw, sb_pos_vy, sb_pos_vh;
 static int bottom_lcd_on=1;
+static int uibvnc_scaling=1;
 
 
 // static functions
@@ -503,10 +504,10 @@ static void uib_repaint(void *param) {
 	
 	// paint the scrollbars
 	if (top_scrollbars) {
-		if (top_scrollbars & 1) drawImage(&blackpixel_spr, 0, 238, 320, SCROLLBAR_WIDTH, 0);
-		if (top_scrollbars & 2) drawImage(&blackpixel_spr, 318, 0, SCROLLBAR_WIDTH, 240, 0);
-		if (top_scrollbars & 1) drawImage(&whitepixel_spr, sb_pos_hx, 238, sb_pos_hw, SCROLLBAR_WIDTH, 0);
-		if (top_scrollbars & 2) drawImage(&whitepixel_spr, 318, sb_pos_vy, SCROLLBAR_WIDTH, sb_pos_vh, 0);
+		if (top_scrollbars & 1) drawImage(&blackpixel_spr, 0, 240-SCROLLBAR_WIDTH, 320, SCROLLBAR_WIDTH, 0);
+		if (top_scrollbars & 2) drawImage(&blackpixel_spr, 320-SCROLLBAR_WIDTH, 0, SCROLLBAR_WIDTH, 240, 0);
+		if (top_scrollbars & 1) drawImage(&whitepixel_spr, sb_pos_hx, 240-SCROLLBAR_WIDTH, sb_pos_hw, SCROLLBAR_WIDTH, 0);
+		if (top_scrollbars & 2) drawImage(&whitepixel_spr, 320-SCROLLBAR_WIDTH, sb_pos_vy, SCROLLBAR_WIDTH, sb_pos_vh, 0);
 	}
 
 	if (svcWaitSynchronization(repaintRequired, 0)) return;
@@ -519,6 +520,15 @@ static void uib_repaint(void *param) {
 	// bottom VNC screen
 	if (uibvnc_buffer) {
 		drawImage(&uibvnc_spr, uibvnc_x, uibvnc_y, uibvnc_w, uibvnc_h, 0);
+		// scrollbars
+		if (uibvnc_w > 320) {
+			drawImage(&blackpixel_spr, 0, 240-SCROLLBAR_WIDTH, 320, SCROLLBAR_WIDTH, 0);
+			drawImage(&whitepixel_spr, (-uibvnc_x*320)/uibvnc_w, 240-SCROLLBAR_WIDTH, (320*320)/uibvnc_w, SCROLLBAR_WIDTH, 0);
+		}
+		if (uibvnc_h > 240) {
+			drawImage(&blackpixel_spr, 320-SCROLLBAR_WIDTH, 0, SCROLLBAR_WIDTH, 240, 0);
+			drawImage(&whitepixel_spr, 320-SCROLLBAR_WIDTH, (-uibvnc_y*240)/uibvnc_h, SCROLLBAR_WIDTH, (240*240)/uibvnc_h, 0);
+		}
 	} else { 
 		// menu
 		int y = kb_enabled ? MIN(0,-240 + kb_y_pos + (29-uib_y) * 8) : 0;
@@ -850,6 +860,9 @@ void uib_init() {
 	loadImage(&twistyup_spr,	"romfs:/twistyup.png");
 	loadImage(&twistydn_spr,	"romfs:/twistydn.png");
 	makeImage(&keymask_spr, (const u8[]){0x00, 0x00, 0x00, 0x80},1,1,0);
+
+	makeImage(&whitepixel_spr, (const u8[]){0xff, 0xff, 0xff, 0xff},1,1,0);
+	makeImage(&blackpixel_spr, (const u8[]){0x00, 0x00, 0x00, 0xff},1,1,0);
 
 	// other stuff
 	kb_y_pos = 240; // keboard hidden at first
@@ -1204,21 +1217,15 @@ void uib_show_scrollbars(int x, int y, int w, int h)
 	if (w) width = w;
 	if (h) height = h;
 	top_scrollbars = (width>400?1:0) + (height>240?2:0);
-	if (!top_scrollbars) return;
-	static int isinit=0;
-
-	if (!isinit) {
-		makeImage(&whitepixel_spr, (const u8[]){0xff, 0xff, 0xff, 0xff},1,1,0);
-		makeImage(&blackpixel_spr, (const u8[]){0x00, 0x00, 0x00, 0xff},1,1,0);
-		isinit=1;
-	}
-	if (width>400) {
-		sb_pos_hx=(-x*320)/width;
-		sb_pos_hw=(400*320)/width;
-	}
-	if (height>240) {
-		sb_pos_vy=(-y*240)/height;
-		sb_pos_vh=(240*240)/height;
+	if (top_scrollbars) {
+		if (width>400) {
+			sb_pos_hx=(-x*320)/width;
+			sb_pos_hw=(400*320)/width;
+		}
+		if (height>240) {
+			sb_pos_vy=(-y*240)/height;
+			sb_pos_vh=(240*240)/height;
+		}
 	}
 	requestRepaint();
 }
@@ -1287,11 +1294,25 @@ rfbBool uibvnc_resize(rfbClient* client) {
 	client->format.redMax = client->format.greenMax = client->format.blueMax = 255;
 	SetFormatAndEncodings(client);
 
-	int scale1024 = MIN (1024, MIN(320*1024 / uibvnc_spr.w, 240*1024 / uibvnc_spr.h)); // no upscaling (scale max 1024)
-	uibvnc_w = uibvnc_spr.w * scale1024 / 1024;
-	uibvnc_h = uibvnc_spr.h * scale1024 / 1024;
-	uibvnc_x = (320 - uibvnc_w) / 2;
-	uibvnc_y = (240 - uibvnc_h) / 2;
-
+	if (uibvnc_scaling) {
+		int scale1024 = MIN (1024, MIN(320*1024 / uibvnc_spr.w, 240*1024 / uibvnc_spr.h)); // no upscaling (scale max 1024)
+		uibvnc_w = uibvnc_spr.w * scale1024 / 1024;
+		uibvnc_h = uibvnc_spr.h * scale1024 / 1024;
+		uibvnc_x = (320 - uibvnc_w) / 2;
+		uibvnc_y = (240 - uibvnc_h) / 2;
+	} else {
+		extern int x,y;
+		int w = uibvnc_spr.w > 320 ? 318 : 320;
+		int h = uibvnc_spr.h > 240 ? 238 : 240;
+		// center screen around mouse cursor if not scaling
+		uibvnc_w = uibvnc_spr.w;
+		uibvnc_h = uibvnc_spr.h;
+		uibvnc_x = uibvnc_w > w ? LIMIT(-x + w / 2, -uibvnc_w + w, 0) : ( w - uibvnc_w ) / 2;
+		uibvnc_y = uibvnc_h > h ? LIMIT(-y + h / 2, -uibvnc_h + h, 0) : ( h - uibvnc_h ) / 2;
+	}
 	return TRUE;
+}
+
+void uibvnc_setScaling(int scaling) {
+	uibvnc_scaling=scaling;
 }

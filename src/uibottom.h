@@ -85,7 +85,7 @@ extern void uib_setBacklight (int on);
 
 extern rfbBool uibvnc_resize(rfbClient*);
 extern void uibvnc_cleanup();
-extern void uibvnc_dirty();
+void uibvnc_setScaling(int);
 
 // exposed variables
 extern uikbd_key uikbd_keypos[];
