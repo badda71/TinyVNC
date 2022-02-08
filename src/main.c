@@ -331,7 +331,8 @@ static void record_mousebutton_event(int which, int pressed) {
 }
 
 extern int uibvnc_w, uibvnc_h, uibvnc_x, uibvnc_y;
-#define SCROLL_THRESHOLD 10
+#define SCROLL_SIZE 20
+#define SCROLL_SPEED 5
 
 // event handler while VNC is running
 static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
@@ -363,12 +364,16 @@ static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 			// scrolling
 			if (!config.scaling2) {
 				if (uibvnc_w > 320) {
-					if (x1 >= 320 - SCROLL_THRESHOLD && uibvnc_x > 320-uibvnc_w) uibvnc_x--;
-					if (x1 < SCROLL_THRESHOLD && uibvnc_x < 0) uibvnc_x++;
+					if (x1 >= 320 - SCROLL_SIZE && uibvnc_x > 320-uibvnc_w)
+						uibvnc_x -= ((x1 - 319 + SCROLL_SIZE) * SCROLL_SPEED) / SCROLL_SIZE;
+					if (x1 < SCROLL_SIZE && uibvnc_x < 0)
+						uibvnc_x += ((-x1 + SCROLL_SIZE) * SCROLL_SPEED) / SCROLL_SIZE;
 				}
 				if (uibvnc_h > 240) {
-					if (y1 >= 240 - SCROLL_THRESHOLD && uibvnc_y > 240-uibvnc_h) uibvnc_y--;
-					if (y1 < SCROLL_THRESHOLD && uibvnc_y < 0) uibvnc_y++;
+					if (y1 >= 240 - SCROLL_SIZE && uibvnc_y > 240-uibvnc_h)
+						uibvnc_y -= ((y1 - 239 + SCROLL_SIZE) * SCROLL_SPEED) / SCROLL_SIZE;
+					if (y1 < SCROLL_SIZE && uibvnc_y < 0)
+						uibvnc_y += ((-y1 + SCROLL_SIZE) * SCROLL_SPEED) / SCROLL_SIZE;
 				}
 			}
 		}
