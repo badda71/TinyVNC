@@ -330,9 +330,21 @@ static void record_mousebutton_event(int which, int pressed) {
 	}
 }
 
+static SDL_Event scheduled = {0};
+static void schedule_event(SDL_Event e) {
+	scheduled = e;
+}
+
+static void push_scheduled_event() {
+	if (scheduled.type) {
+		SDL_PushEvent(&scheduled);
+		scheduled.type = 0;
+	}
+}
+
 extern int uibvnc_w, uibvnc_h, uibvnc_x, uibvnc_y;
-#define SCROLL_SIZE 20
-#define SCROLL_SPEED 5
+#define SCROLL_SIZE 20 // size of the scrolling arean in px
+#define SCROLL_SPEED 200 // max scrolling speed in px/sec
 
 // event handler while VNC is running
 static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
@@ -361,19 +373,62 @@ static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 			y = ((y1 - uibvnc_y) * tcl->updateRect.h) / uibvnc_h;
 			xf=(double)x;
 			yf=(double)y;
-			// scrolling
+
+			// handle bottom screen scrolling - only if we are not scaling of course
 			if (!config.scaling2) {
+				static int scrolling = 0;
+				static double xposf, yposf;
+
+				double dxf=0.0, dyf=0.0;
 				if (uibvnc_w > 320) {
 					if (x1 >= 320 - SCROLL_SIZE && uibvnc_x > 320-uibvnc_w)
-						uibvnc_x -= ((x1 - 319 + SCROLL_SIZE) * SCROLL_SPEED) / SCROLL_SIZE;
+						dxf = -(double)(((x1 - 319 + SCROLL_SIZE) * SCROLL_SPEED) / SCROLL_SIZE) / 50.0;
 					if (x1 < SCROLL_SIZE && uibvnc_x < 0)
-						uibvnc_x += ((-x1 + SCROLL_SIZE) * SCROLL_SPEED) / SCROLL_SIZE;
+						dxf = (double)(((-x1 + SCROLL_SIZE) * SCROLL_SPEED) / SCROLL_SIZE) / 50.0;
 				}
 				if (uibvnc_h > 240) {
 					if (y1 >= 240 - SCROLL_SIZE && uibvnc_y > 240-uibvnc_h)
-						uibvnc_y -= ((y1 - 239 + SCROLL_SIZE) * SCROLL_SPEED) / SCROLL_SIZE;
+						dyf = -(double)(((y1 - 239 + SCROLL_SIZE) * SCROLL_SPEED) / SCROLL_SIZE) / 50.0;
 					if (y1 < SCROLL_SIZE && uibvnc_y < 0)
-						uibvnc_y += ((-y1 + SCROLL_SIZE) * SCROLL_SPEED) / SCROLL_SIZE;
+						dyf = (double)(((-y1 + SCROLL_SIZE) * SCROLL_SPEED) / SCROLL_SIZE) / 50.0;
+				}
+				if (dxf != 0.0 || dyf != 0.0) {
+					if (scrolling == 0) {
+						xposf = (double)uibvnc_x;
+						yposf = (double)uibvnc_y;
+						if (e->type == SDL_MOUSEBUTTONDOWN || (e->type == SDL_MOUSEMOTION && e->motion.which != 2))
+							scrolling = 1;
+					}
+					if (dxf != 0.0) {
+						xposf += dxf;
+						uibvnc_x = (int)xposf;
+						int w = uibvnc_h>240 ? 318 : 320;
+						if (uibvnc_x > 0) uibvnc_x = 0;
+						if (uibvnc_x < w - uibvnc_w) uibvnc_x =  w - uibvnc_w;
+					}
+					if (dyf != 0.0) {
+						yposf += dyf;
+						uibvnc_y = (int)yposf;
+						int h = uibvnc_w>320 ? 238 : 240;
+						if (uibvnc_y > 0) uibvnc_y = 0;
+						if (uibvnc_y < h - uibvnc_h) uibvnc_y = h - uibvnc_h;
+					}
+					if (scrolling) {
+						u32 kHeld = hidKeysHeld();
+						if (kHeld & KEY_TOUCH) {
+//log_citra("pushing event, dx: %f, dy: %f, newxf: %f, newyf: %f, x: %d, y: %d", dxf, dyf, xposf, yposf, uibvnc_x, uibvnc_y);
+							schedule_event((SDL_Event){
+								.motion.type = SDL_MOUSEMOTION,
+								.motion.state = 1,
+								.motion.which = 2, // identify as autoscrolling
+								.motion.x = (x1 * cl->updateRect.w) / 320,
+								.motion.y = (y1 * cl->updateRect.h) / 240
+							});
+						}
+					}
+				} else {
+//log_citra("scrolling off");
+					scrolling = 0;
 				}
 			}
 		}
@@ -1230,6 +1285,7 @@ int main() {
 				}
 			}
 			if (ext) break;
+			push_scheduled_event();
 			// audio stream
 			if (config.enableaudio)
 				run_stream();
