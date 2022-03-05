@@ -578,7 +578,7 @@ static void printlist(int num) {
 		uib_printf("%s", buf);
 	}
 	uib_set_position(0,29);
-	uib_printf(	"A:select B:quit X:delete Y:copy R:edit  ");
+	uib_printf(	"A:select B:quit X:delete R:copy Y:edit  ");
 	uib_reset_colors();
 	for (int i=0;i<NUMCONF; ++i) {
 		uib_set_position(0,i+2);
@@ -1079,7 +1079,7 @@ static int getconfig(vnc_config *c) {
 					memset(&(conf[sel]), 0, sizeof(vnc_config));
 					upd = 1;
 					break;
-				case XK_y:
+				case XK_w:
 					if (conf[sel].host[0])
 						cpy = sel;
 					else cpy = -1;
@@ -1100,7 +1100,7 @@ static int getconfig(vnc_config *c) {
 					}
 					upd = 1;
 					break;
-				case XK_w:
+				case XK_y:
 					editconfig(&(conf[sel]));
 					upd = 1;
 					break;
