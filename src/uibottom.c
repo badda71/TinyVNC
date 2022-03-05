@@ -1076,7 +1076,7 @@ int uib_handle_event(SDL_Event *e, int taphandling) {
 	int i,x,y;
 	static int process_touchpad = 0;
 
-	if (e->type == SDL_KEYDOWN && e->key.keysym.sym == 1) {
+	if (e->type == SDL_KEYDOWN && e->key.keysym.sym == 2) {
 		toggle_keyboard();
 		return 1;
 	}

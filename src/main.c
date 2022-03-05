@@ -91,42 +91,6 @@ aptHookCookie cookie;
 extern void SDL_SetVideoPosition(int x, int y);
 extern void SDL_ResetVideoPosition();
 
-// default
-struct {
-	char *name;
-	int rfb_key;
-} buttons3ds[] = {
-	{"A", XK_a},
-	{"B", XK_b},
-	{"X", XK_x},
-	{"Y", XK_y},
-	{"L", XK_q},
-	{"R", XK_w},
-	{"ZL", XK_1},
-	{"ZR", XK_2},
-	{"START", 2}, // disconnect
-//	{"SELECT", 9}, // toggle bottom backlight
-//	{"SELECT", 8}, // toggle scaling
-	{"SELECT", XK_Escape},
-
-	{"CPAD_UP", XK_Up}, // C-PAD
-	{"CPAD_DOWN", XK_Down},
-	{"CPAD_LEFT", XK_Left},
-	{"CPAD_RIGHT", XK_Right},
-
-	{"DPAD_UP", XK_t},	// D-PAD
-	{"DPAD_DOWN", XK_g},
-	{"DPAD_LEFT", XK_f},
-	{"DPAD_RIGHT", XK_h},
-
-	{"CSTCK_UP", XK_i}, // C-STICK
-	{"CSTCK_DOWN", XK_k},
-	{"CSTCK_LEFT", XK_j},
-	{"CSTCK_RIGHT", XK_l},
-
-	{NULL,0}
-};
-
 static void vwrite_log(const char *format, va_list arg, int channel)
 {
 	int i=vsnprintf(NULL, 0, format, arg);
@@ -228,35 +192,6 @@ static rfbBool resize(rfbClient* client) {
 	return TRUE;
 }
 
-/*
-static void update(rfbClient* cl,int x,int y,int w,int h) {
-}
-
-static void kbd_leds(rfbClient* cl, int value, int pad) {
-	// note: pad is for future expansion 0=unused
-	rfbClientErr("Led State= 0x%02X", value);
-}
-
-// trivial support for textchat
-static void text_chat(rfbClient* cl, int value, char *text) {
-	switch(value) {
-	case rfbTextChatOpen:
-		rfbClientErr("TextChat: We should open a textchat window!");
-		TextChatOpen(cl);
-		break;
-	case rfbTextChatClose:
-		rfbClientErr("TextChat: We should close our window!");
-		break;
-	case rfbTextChatFinished:
-		rfbClientErr("TextChat: We should close our window!");
-		break;
-	default:
-		rfbClientErr("TextChat: Received \"%s\"", text);
-		break;
-	}
-	fflush(stderr);
-}
-*/
 
 static void cleanup()
 {
@@ -275,11 +210,78 @@ static void map_joy_to_key(SDL_Event *e)
 {
 	static int old_status = 0;
 	static int old_dp_status = 0;
+	static meta = 0;
 	int i1,i2, status;
 
-	static int buttonkeys[10]={8, 0, 1, 2, 3, 4, 5, 9, 6, 7};
-	static int axiskeys[8]={13, 12, 11, 10, 21, 20, 19, 18};
-	static int hatkeys[4]={14, 17, 15, 16};
+	// key mappings =================================================================
+	// values as per https://libvnc.github.io/doc/html/keysym_8h_source.html
+	// 1 = meta button
+	// 2 = toggle keyboard
+	// 3 = disconnect
+	// 4 = toggle scaling
+	// 5 = toggle bottom screen backlight
+	// 6 = toggle touch/button events target (top or bottom)
+	// 16-20 = mouse button 1-5 (16=left, 17=middle, 18=right, 19=wheelup, 20=wheeldown)
+
+	static int buttonkeys[10]={
+		XK_Escape,	// START
+		XK_a,	// A
+		XK_b,	// B
+		XK_x,	// X
+		XK_y,	// Y
+		XK_q,	// L
+		XK_w,	// R
+		1,		// SELECT (= meta)
+		XK_1,	// ZL
+		XK_2	// ZR
+	};
+
+	static int buttonkeys_meta[10]={
+		3,		// START
+		XK_A,	// A
+		XK_B,	// B
+		XK_C,	// X
+		XK_Y,	// Y
+		XK_Q,	// L
+		XK_W,	// R
+		1,		// SELECT (= meta)
+		XK_3,	// ZL
+		XK_4	// ZR
+	};
+
+	static int axiskeys[8]={
+		XK_Right,	// C-PAD RIGHT
+		XK_Left,	// C-PAD LEFT
+		XK_Down,	// C-PAD DOWN
+		XK_Up,	// C-PAD UP
+		XK_l, // C-STICK RIGHT
+		XK_j, // C-STICK LEFT
+		XK_k, // C-STICK DOWN
+		XK_i // C-STICK UP
+	};
+	static int axiskeys_meta[8]={
+		XK_Right,	// C-PAD RIGHT
+		XK_Left,	// C-PAD LEFT
+		XK_Down,	// C-PAD DOWN
+		XK_Up,	// C-PAD UP
+		XK_L, // C-STICK RIGHT
+		XK_J, // C-STICK LEFT
+		XK_K, // C-STICK DOWN
+		XK_I // C-STICK UP
+	};
+
+	static int hatkeys[4]={
+		XK_t,	// D-PAD UP
+		XK_h,	// D-PAD RIGHT
+		XK_g,	// D-PAD DOWN
+		XK_f	// D-PAD LEFT
+	};
+	static int hatkeys_meta[4]={
+		XK_T,	// D-PAD UP
+		XK_H,	// D-PAD RIGHT
+		XK_G,	// D-PAD DOWN
+		XK_F	// D-PAD LEFT
+	};
 
 	switch (e->type) {
 	case SDL_JOYHATMOTION:
@@ -288,7 +290,7 @@ static void map_joy_to_key(SDL_Event *e)
 			for (i1 = 0; i1 < 4; ++i1) {
 				i2 = 1 << i1;
 				if ((status & i2) != (old_dp_status & i2))
-					push_key_event(buttons3ds[hatkeys[i1]].rfb_key, status & i2);
+					push_key_event(meta?hatkeys_meta[i1]:hatkeys[i1], status & i2);
 			}
 			old_dp_status = status;
 		}
@@ -296,7 +298,13 @@ static void map_joy_to_key(SDL_Event *e)
 	case SDL_JOYBUTTONDOWN:
 	case SDL_JOYBUTTONUP:
 		i1 = e->type == SDL_JOYBUTTONDOWN ? 1 : 0;
-		make_key_event(e, buttons3ds[buttonkeys[e->jbutton.button]].rfb_key, i1); break;
+		if (buttonkeys[e->jbutton.button] == 1) {
+			meta = i1;
+		} else {
+			make_key_event(e,
+				meta?buttonkeys_meta[e->jbutton.button]:buttonkeys[e->jbutton.button],
+				i1);
+		}
 		break;
 	case SDL_JOYAXISMOTION:
 		i1 = 3 << (e->jaxis.axis * 2);
@@ -306,7 +314,7 @@ static void map_joy_to_key(SDL_Event *e)
 			for (i1 = 0; i1 < 8; ++i1) {
 				i2 = 1 << i1;
 				if ((status & i2) != (old_status & i2))
-					push_key_event(buttons3ds[axiskeys[i1]].rfb_key, status & i2);
+					push_key_event(meta?axiskeys_meta[i1]:axiskeys[i1], status & i2);
 			}
 			old_status = status;
 		}
@@ -470,26 +478,32 @@ static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 	case SDL_KEYUP:
 	case SDL_KEYDOWN:
 		s =  e->key.keysym.sym;
-		if (s == 2)
+		if (s == 3)
 			return 0; // disconnect
 		if (viewOnly) break;
-		if (s>2 && s<8) {
-			// mouse button 1-5: 3-7
-			record_mousebutton_event(s-2, e->type == SDL_KEYDOWN?1:0);
+		if (s>15 && s<21) {
+			// mouse button 1-5: 16-20
+			record_mousebutton_event(s-15, e->type == SDL_KEYDOWN?1:0);
 			SendPointerEvent((cl2 && config.eventtarget)?cl2:cl, x, y, buttonMask);
 			buttonMask &= ~(rfbButton4Mask | rfbButton5Mask); // clear wheel up and wheel down state
-		} else if (s == 8 && e->type == SDL_KEYDOWN) {
-			// toggle top screen scaling
-			config.scaling = !config.scaling;
-			// resize the SDL screen
-			resize(cl);
-			SendFramebufferUpdateRequest(cl, 0, 0, cl->width, cl->height, FALSE);
-		} else if (s == 9 && e->type == SDL_KEYDOWN) {
-			// toggle bottom screen backlight
-			uib_setBacklight(!uib_getBacklight());
-		} else if (cl2 && s == 10 && e->type == SDL_KEYDOWN) {
-			// toggle event target
-			config.eventtarget = !config.eventtarget;
+		} else if (s == 4) {
+			if (e->type == SDL_KEYDOWN) {
+				// toggle top screen scaling
+				config.scaling = !config.scaling;
+				// resize the SDL screen
+				resize(cl);
+				SendFramebufferUpdateRequest(cl, 0, 0, cl->width, cl->height, FALSE);
+			}
+		} else if (s == 5) {
+			if (e->type == SDL_KEYDOWN) {
+				// toggle bottom screen backlight
+				uib_setBacklight(!uib_getBacklight());
+			}
+		} else if (s == 6) {
+			if (cl2 && e->type == SDL_KEYDOWN) {
+				// toggle event target
+				config.eventtarget = !config.eventtarget;
+			}
 		} else {
 			SendKeyEvent((cl2 && config.eventtarget)?cl2:cl, s, e->type == SDL_KEYDOWN ? TRUE : FALSE);
 		}
@@ -1110,51 +1124,6 @@ static void safeexit() {
 	exit(0);
 }
 
-static void readkeymaps(char *cname) {
-	FILE *f=NULL;
-	int i, x;
-	char name[32], *p=NULL, *fn=NULL, buf[BUFSIZE];
-	if (cname && cname[0]) {
-		p=malloc(strlen(keymap_filename)+2+strlen(cname));
-		strcpy(p, keymap_filename);
-		sprintf(strrchr(p,'/'),"/%s.keymap", cname);
-	}
-	if( (p && (f=fopen(p, "r"))!=NULL && (fn=p)) ||
-		((f=fopen(keymap_filename, "r"))!=NULL && (fn=(char*)keymap_filename))) {
-		rfbClientLog("Reading keymap from %s", fn);
-		while (fgets(buf, BUFSIZE, f)) {
-			if (buf[0]=='#' || sscanf(buf,"%s %x\n",name, &x) != 2) continue;
-			for (i=0; buttons3ds[i].rfb_key!=0; ++i) {
-				if (strcmp(buttons3ds[i].name, name)==0) {
-					buttons3ds[i].rfb_key=x;
-					break;
-				}
-			}
-		}
-		fclose(f);
-	} else if ((f=fopen(keymap_filename, "w"))!=NULL) {
-		rfbClientLog("Saving standard keymap to %s", keymap_filename);
-		
-		fprintf(f,
-			"# mappings as per https://libvnc.github.io/doc/html/keysym_8h_source.html\n"
-			"# 1 = toggle keyboard\n"
-			"# 2 = disconnect\n"
-			"# 3-7 = mouse button 1-5 (1=left, 2=middle, 3=right, 4=wheelup, 5=wheeldown)\n"
-			"# 8 = toggle scaling\n"
-			"# 9 = toggle bottom screen backlight\n"
-			"# 10 = toggle touch/button events target (top or bottom)\n"
-		);
-		for (i=0; buttons3ds[i].rfb_key != 0; ++i) {
-			fprintf(f,"%s\t%s0x%04X\n",
-				buttons3ds[i].name,
-				buttons3ds[i].rfb_key < 0 ? "-" : "",
-				abs(buttons3ds[i].rfb_key));
-		}
-		fclose(f);
-	}
-	if (p) free(p);
-}
-
 void aptHookFunc(APT_HookType hookType, void *param)
 {
 
@@ -1232,7 +1201,6 @@ int main() {
 			buf};
 		int argc = sizeof(argv)/sizeof(char*);
 
-		readkeymaps(config.name);
 		rfbClientLog("Connecting to %s", buf);
 		
 		if(!rfbInitClient(cl, &argc, argv))
