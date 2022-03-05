@@ -13,6 +13,7 @@
 #include <citro3d.h>
 #include <rfb/rfbclient.h>
 #include "uibottom.h"
+#include "utilities.h"
 
 #define ENTER //log_citra("enter %s",__func__);
 #define DEF_TXT_COL COL_WHITE
@@ -209,55 +210,6 @@ extern void SDL_RequestCall(void(*callback)(void*), void *param);
 	GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO))
 
 #define TEX_MIN_SIZE 64
-
-void hex_dump(char *data, int size, char *caption)
-{
-	int i; // index in data...
-	int j; // index in line...
-	char temp[8];
-	char buffer[128];
-	char *ascii;
-
-	memset(buffer, 0, 128);
-
-	log_citra("---------> %s <--------- (%d bytes from %p)", caption, size, data);
-	// Printing the ruler...
-	//log_citra("        +0          +4          +8          +c            0   4   8   c   ");	
-
-	// Hex portion of the line is 8 (the padding) + 3 * 16 = 52 chars long
-	// We add another four bytes padding and place the ASCII version...
-	ascii = buffer + 58;
-	memset(buffer, ' ', 58 + 16);
-	buffer[58 + 16] = '\0';
-	buffer[0] = '+';
-	buffer[1] = '0';
-	buffer[2] = '0';
-	buffer[3] = '0';
-	buffer[4] = '0';
-	for (i = 0, j = 0; i < size; i++, j++)
-	{
-		if (j == 16)
-		{
-			log_citra("%s", buffer);
-			memset(buffer, ' ', 58 + 16);
-
-			sprintf(temp, "+%04x", i);
-			memcpy(buffer, temp, 5);
-
-			j = 0;
-		}
-
-		sprintf(temp, "%02x", 0xff & data[i]);
-		memcpy(buffer + 8 + (j * 3), temp, 2);
-		if ((data[i] > 31) && (data[i] < 127))
-			ascii[j] = data[i];
-		else
-			ascii[j] = '.';
-	}
-
-	if (j != 0)
-		log_citra("%s", buffer);
-}
 
 // key repeat functions for the simulated key repeat
 static int keydown = 0;

@@ -15,6 +15,7 @@
 #include <rfb/rfbclient.h>
 #include "streamclient.h"
 #include "uibottom.h"
+#include "utilities.h"
 
 #define SOC_ALIGN       0x1000
 #define SOC_BUFFERSIZE  0x100000
@@ -478,14 +479,17 @@ static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
 			SendPointerEvent((cl2 && config.eventtarget)?cl2:cl, x, y, buttonMask);
 			buttonMask &= ~(rfbButton4Mask | rfbButton5Mask); // clear wheel up and wheel down state
 		} else if (s == 8 && e->type == SDL_KEYDOWN) {
-			// toggle scaling
+			// toggle top screen scaling
 			config.scaling = !config.scaling;
 			// resize the SDL screen
 			resize(cl);
 			SendFramebufferUpdateRequest(cl, 0, 0, cl->width, cl->height, FALSE);
 		} else if (s == 9 && e->type == SDL_KEYDOWN) {
-			// toggle bottom screen
+			// toggle bottom screen backlight
 			uib_setBacklight(!uib_getBacklight());
+		} else if (cl2 && s == 10 && e->type == SDL_KEYDOWN) {
+			// toggle event target
+			config.eventtarget = !config.eventtarget;
 		} else {
 			SendKeyEvent((cl2 && config.eventtarget)?cl2:cl, s, e->type == SDL_KEYDOWN ? TRUE : FALSE);
 		}
@@ -754,7 +758,7 @@ static int editconfig(vnc_config *c) {
 			}
 			uib_set_colors(HEADERCOL, COL_BLACK);
 			uib_set_position(0,23);
-			uib_printf(	"--------- Misc Settings ----------------" );
+			uib_printf(	"--------- User Interface ---------------" );
 			uib_reset_colors();
 			uib_set_position(0,24);
 			uib_printf(nc.hidelog?"\x91 ":"\x90 ");
@@ -1138,6 +1142,7 @@ static void readkeymaps(char *cname) {
 			"# 3-7 = mouse button 1-5 (1=left, 2=middle, 3=right, 4=wheelup, 5=wheeldown)\n"
 			"# 8 = toggle scaling\n"
 			"# 9 = toggle bottom screen backlight\n"
+			"# 10 = toggle touch/button events target (top or bottom)\n"
 		);
 		for (i=0; buttons3ds[i].rfb_key != 0; ++i) {
 			fprintf(f,"%s\t%s0x%04X\n",
