@@ -16,6 +16,7 @@
 #define COL_RED (SDL_Color){0xff, 0, 0, 0xff}
 #define COL_GREEN (SDL_Color){0, 0xff, 0, 0xff}
 #define COL_BLUE (SDL_Color){0, 0, 0xff, 0xff}
+#define COL_GRAY (SDL_Color){0x80, 0x80, 0x80, 0xff}
 #define COL_MAKE(x,y,z) (SDL_Color){x, y, z, 0xff}
 
 #define MIN(a,b) \
