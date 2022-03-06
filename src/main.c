@@ -13,10 +13,12 @@
 #include <3ds.h>
 #include <SDL/SDL.h>
 #include <rfb/rfbclient.h>
+#include <arpa/inet.h>
 #include "streamclient.h"
 #include "uibottom.h"
 #include "utilities.h"
 #include "vjoy-udp-feeder-client.h"
+#include "dsu-server.h"
 
 #define SOC_ALIGN       0x1000
 #define SOC_BUFFERSIZE  0x100000
@@ -685,6 +687,10 @@ static int editconfig(vnc_config *c) {
 	SwkbdButton button;
 	char *msg=NULL;
 	int showmsg = 0, msg_state=0;
+	struct in_addr sin_addr;
+	char myip[INET_ADDRSTRLEN];
+	sin_addr.s_addr = gethostid();
+	inet_ntop( AF_INET, &sin_addr, myip, INET_ADDRSTRLEN );
 
 	vnc_config nc = *c;
 	if (nc.host[0]==0) nc = default_config;
@@ -873,11 +879,13 @@ static int editconfig(vnc_config *c) {
 				if (sel == EDITCONF_CTRDSUENABLE) uib_reset_colors();
 				if (nc.ctr_dsu_enable) {
 					uib_set_position(0,++l);
+					uib_printf(	"My IP: %s", myip);
+					uib_set_position(0,++l);
 					uib_printf(	"Cemuhook server port: ");
 					if (sel == EDITCONF_CTRDSUPORT)uib_invert_colors();
 					uib_printf(	"%-18d", nc.ctr_dsu_port);
 					if (sel == EDITCONF_CTRDSUPORT) uib_reset_colors();
-				}
+				} else l+=2;
 			}
 			if (msg && showmsg) {
 				uib_invert_colors();
@@ -1306,6 +1314,7 @@ int main() {
 	SDL_Event e;
 	char buf[512];
 	struct vjoy_udp_client udpclient;
+	struct dsu_server dsuserver;
 	u32 kHeld;
 	circlePosition posCp, posStk;
 	touchPosition touch;
@@ -1400,10 +1409,18 @@ int main() {
 			// init UDP client
 			if (vjoy_udp_client_init(&udpclient, config.host, config.ctr_udp_port))
 				rfbClientErr("vJoy-UDP-feeder client error: %s", udpclient.lasterrmsg);
-			if (config.ctr_udp_motion) {
-				HIDUSER_EnableAccelerometer();
-				HIDUSER_EnableGyroscope();
-			}
+			else
+				rfbClientLog("vJoy-UDP-feeder client started");
+		}
+		if (config.ctr_dsu_enable) {
+			if (dsu_server_init(&dsuserver, config.ctr_dsu_port))
+				rfbClientErr("Cemuhook server: %s", dsuserver.lasterrmsg);
+			else
+				rfbClientLog("Cemuhook server started: %s:%d", dsuserver.ipstr, dsuserver.port);
+		}
+		if ((config.ctr_udp_enable && config.ctr_udp_motion) || config.ctr_dsu_enable) {
+			HIDUSER_EnableAccelerometer();
+			HIDUSER_EnableGyroscope();
 		}
 
 		// clear mouse state
@@ -1434,18 +1451,25 @@ int main() {
 			if (ext) break;
 			push_scheduled_event();
 			// vjoy udp feeder
-			if (config.ctr_udp_enable) {
+			if (config.ctr_udp_enable || config.ctr_dsu_enable) {
 				kHeld = hidKeysHeld();
 				hidCircleRead(&posCp);
 				irrstCstickRead(&posStk);
 				hidTouchRead(&touch);
-				if (config.ctr_udp_motion) {
+				if ((config.ctr_udp_enable && config.ctr_udp_motion) || config.ctr_dsu_enable) {
 					hidAccelRead(&accel);
 					hidGyroRead(&gyro);
-					vjoy_udp_client_update(&udpclient, kHeld, &posCp, &posStk, &touch, &accel, &gyro);
-				} else {
-					vjoy_udp_client_update(&udpclient, kHeld, &posCp, &posStk, &touch, NULL, NULL);
 				}
+			}
+			if (config.ctr_udp_enable) {
+				if (config.ctr_udp_motion)
+					vjoy_udp_client_update(&udpclient, kHeld, &posCp, &posStk, &touch, &accel, &gyro);
+				else
+					vjoy_udp_client_update(&udpclient, kHeld, &posCp, &posStk, &touch, NULL, NULL);
+			}
+			if (config.ctr_dsu_enable) {
+				dsu_server_run(&dsuserver);
+				dsu_server_update(&dsuserver, kHeld, &posCp, &posStk, &touch, &accel, &gyro);
 			}
 
 			// audio stream
@@ -1472,6 +1496,9 @@ int main() {
 				}
 			}
 		}
+		if (config.ctr_dsu_enable)
+			dsu_server_shutdown(&dsuserver);
+
 		if (config.ctr_udp_enable) {
 			vjoy_udp_client_shutdown(&udpclient);
 			if (config.ctr_udp_motion) {
