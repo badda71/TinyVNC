@@ -24,6 +24,8 @@
 #define SOC_BUFFERSIZE  0x100000
 #define NUMCONF 25
 
+#define HEADERCOL COL_MAKE(0x47, 0x80, 0x82)
+
 typedef struct {
 	char name[128];
 	char host[128];
@@ -33,6 +35,7 @@ typedef struct {
 	char user[128];
 	char pass[128];
 	int scaling;
+	int vncoff;
 	int port2;
 	int enablevnc2;
 	int scaling2;
@@ -60,6 +63,7 @@ static vnc_config default_config = {
 	.user = "",
 	.pass = "",
 	.scaling = 1,
+	.vncoff = 0,
 	.port2 = SERVER_PORT_OFFSET+1,
 	.enablevnc2 = 0,
 	.scaling2 = 1,
@@ -155,6 +159,16 @@ void log_msg(const char *format, ...)
     va_list argptr;
     va_start(argptr, format);
 	vwrite_log(format, argptr, 3);
+    va_end(argptr);
+}
+
+void log_color(SDL_Color front, SDL_Color back, const char *format, ...)
+{
+	va_list argptr;
+    va_start(argptr, format);
+	uib_set_colors(front, back);
+	vwrite_log(format, argptr, 3);
+	uib_reset_colors();
     va_end(argptr);
 }
 
@@ -391,7 +405,7 @@ extern int uibvnc_w, uibvnc_h, uibvnc_x, uibvnc_y;
 #define SCROLL_SPEED 200 // max scrolling speed in px/sec
 
 // event handler while VNC is running
-static rfbBool handleSDLEvent(rfbClient *cl, SDL_Event *e)
+static rfbBool handleSDLEvent(SDL_Event *e)
 {
 	// pointer positions
 	static double xf=0.0,yf=0.0;
@@ -598,8 +612,6 @@ mkpath_err:
 	return 1;
 }
 
-#define HEADERCOL COL_MAKE(0x47, 0x80, 0x82)
-
 static void printlist(int num) {
 	char buf[41];
 	
@@ -655,6 +667,7 @@ enum {
 	EDITCONF_USER,
 	EDITCONF_PASS,
 	EDITCONF_SCALING,
+	EDITCONF_VNCOFF,
 	EDITCONF_ENABLEVNC2,
 	EDITCONF_PORT2,
 	EDITCONF_SCALING2,
@@ -759,6 +772,11 @@ static int editconfig(vnc_config *c) {
 				if (sel == EDITCONF_SCALING) uib_invert_colors();
 				uib_printf(	"Scale to fit screen");
 				if (sel == EDITCONF_SCALING) uib_reset_colors();
+				uib_set_position(0,++l);
+				uib_printf(nc.vncoff?"\x91 ":"\x90 ");
+				if (sel == EDITCONF_VNCOFF) uib_invert_colors();
+				uib_printf(	"Disable VNC connection");
+				if (sel == EDITCONF_VNCOFF) uib_reset_colors();
 				++l;
 				
 				uib_set_colors(HEADERCOL, COL_BLACK);
@@ -841,7 +859,7 @@ static int editconfig(vnc_config *c) {
 				++l;
 				uib_set_colors(HEADERCOL, COL_BLACK);
 				uib_set_position(0,++l);
-				uib_printf(	"--------- Controls ---------------------" );
+				uib_printf(	"--------- Controller -------------------" );
 				uib_reset_colors();
 				uib_set_position(0,++l);
 				uib_printf(nc.ctr_vnc_keys?"\x91 ":"\x90 ");
@@ -1023,6 +1041,9 @@ static int editconfig(vnc_config *c) {
 						break;
 					case EDITCONF_SCALING: // top screen scaling on/off
 						nc.scaling = !nc.scaling;
+						break;
+					case EDITCONF_VNCOFF: // disable top screen vnc
+						nc.vncoff = !nc.vncoff;
 						break;
 					case EDITCONF_ENABLEVNC2: // enable bottom screen vnc
 						nc.enablevnc2 = !nc.enablevnc2;
@@ -1355,68 +1376,77 @@ int main() {
 		if (getconfig(&config) ||
 			config.host[0] == 0) goto quit;
 		
+		int active=0;
+
 		user1=config.user;
 		pass1=config.pass;
 		if (config.backoff) uib_setBacklight (0);
 		uib_clear();
 		uib_update(UIB_RECALC_MENU);
 
-		cl=rfbGetClient(8,3,4); // int bitsPerSample, int samplesPerPixel, int bytesPerPixel
-		cl->MallocFrameBuffer = resize;
-		cl->canHandleNewFBSize = TRUE;
-		cl->GetCredential = get_credential;
-		cl->GetPassword = get_password;
-
-		snprintf(buf, sizeof(buf),"%s:%d",config.host, config.port);
+		// VNC connections
 		char *argv[] = {
 			"TinyVNC",
 			buf};
 		int argc = sizeof(argv)/sizeof(char*);
 
-		rfbClientLog("Connecting to %s", buf);
-		
-		if(!rfbInitClient(cl, &argc, argv))
-		{
-			// todo: add error handling
-			cl = NULL; /* rfbInitClient has already freed the client struct */
-		} else {
-			if (config.enablevnc2) {
-				cl2=rfbGetClient(8,3,4); // int bitsPerSample, int samplesPerPixel, int bytesPerPixel
-				cl2->MallocFrameBuffer = uibvnc_resize;
-				cl2->canHandleNewFBSize = TRUE;
-				cl2->GetCredential = get_credential;
-				cl2->GetPassword = get_password;
-				uibvnc_setScaling(config.scaling2);
-				snprintf(buf, sizeof(buf),"%s:%d",config.host, config.port2);
-				rfbClientLog("Connecting2 to %s", buf);
-				
-				if(!rfbInitClient(cl2, &argc, argv))
-				{
-					cl2 = NULL; // todo: add error handling // rfbInitClient has already freed the client struct
-				}
-			}
-			
-			if (!config.hidekb) uib_enable_keyboard(1);
+		// top screen VNC
+		if (!config.vncoff) {
+			cl=rfbGetClient(8,3,4); // int bitsPerSample, int samplesPerPixel, int bytesPerPixel
+			cl->MallocFrameBuffer = resize;
+			cl->canHandleNewFBSize = TRUE;
+			cl->GetCredential = get_credential;
+			cl->GetPassword = get_password;
+			snprintf(buf, sizeof(buf),"%s:%d",config.host, config.port);
+			rfbClientLog("Connecting to %s", buf);
+			if(!rfbInitClient(cl, &argc, argv))
+			{
+				cl = NULL; // rfbInitClient has already freed the client struct
+			} else ++active;
 		}
+		// bottom screen VNC
+		if (config.enablevnc2) {
+			cl2=rfbGetClient(8,3,4); // int bitsPerSample, int samplesPerPixel, int bytesPerPixel
+			cl2->MallocFrameBuffer = uibvnc_resize;
+			cl2->canHandleNewFBSize = TRUE;
+			cl2->GetCredential = get_credential;
+			cl2->GetPassword = get_password;
+			uibvnc_setScaling(config.scaling2);
+			snprintf(buf, sizeof(buf),"%s:%d",config.host, config.port2);
+			rfbClientLog("Connecting2 to %s", buf);
+			if(!rfbInitClient(cl2, &argc, argv))
+			{
+				cl2 = NULL; // rfbInitClient has already freed the client struct
+			} else ++active;
+		}
+			
+		if (!config.hidekb && (cl || cl2)) uib_enable_keyboard(1);
+		if (!cl && cl2) config.eventtarget = 1;
+		if (!cl && !cl2) config.ctr_vnc_keys = config.ctr_vnc_touch = 0;
 
 		if (config.enableaudio) {
 			snprintf(buf, sizeof(buf),"http://%s:%d%s%s",config.host, config.audioport,
 				(config.audiopath[0]=='/'?"":"/"), config.audiopath);
 			start_stream(buf, config.user, config.pass);
+			++active;
 		}
 
 		if (config.ctr_udp_enable) {
 			// init UDP client
 			if (vjoy_udp_client_init(&udpclient, config.host, config.ctr_udp_port))
 				rfbClientErr("vJoy-UDP-feeder client error: %s", udpclient.lasterrmsg);
-			else
+			else {
 				rfbClientLog("vJoy-UDP-feeder client started");
+				++active;
+			}
 		}
 		if (config.ctr_dsu_enable) {
 			if (dsu_server_init(&dsuserver, config.ctr_dsu_port))
 				rfbClientErr("Cemuhook server: %s", dsuserver.lasterrmsg);
-			else
-				rfbClientLog("Cemuhook server started: %s:%d", dsuserver.ipstr, dsuserver.port);
+			else {
+				rfbClientLog("Cemuhook started: %s:%d", dsuserver.ipstr, dsuserver.port);
+				++active;
+			}
 		}
 		if ((config.ctr_udp_enable && config.ctr_udp_motion) || config.ctr_dsu_enable) {
 			HIDUSER_EnableAccelerometer();
@@ -1427,7 +1457,12 @@ int main() {
 		buttonMask = 0;
 		int ext=0;
 		int evtarget = 10, taphandling = 1;
-		while(cl) {
+
+		if (!active) rfbClientErr("Noting to do ...");
+		else log_color(HEADERCOL, COL_BLACK, "Press SELECT + START to stop");
+
+		while(active) {
+			// set up event handling
 			if (evtarget != (cl2!=NULL && config.eventtarget!=0)) {
 				evtarget = (cl2!=NULL && config.eventtarget!=0);
 				cl->appData.useRemoteCursor = evtarget;
@@ -1442,7 +1477,7 @@ int main() {
 			checkKeyRepeat();
 			while (SDL_PollEvent(&e)) {
 				if (uib_handle_event(&e, taphandling | (evtarget ? 2 : 0 ))) continue;
-				if(!handleSDLEvent(cl, &e)) {
+				if(!handleSDLEvent(&e)) {
 					rfbClientLog("Disconnecting");
 					ext=1;
 					break;
@@ -1450,7 +1485,7 @@ int main() {
 			}
 			if (ext) break;
 			push_scheduled_event();
-			// vjoy udp feeder
+			// vjoy udp feeder && cemuhook server
 			if (config.ctr_udp_enable || config.ctr_dsu_enable) {
 				kHeld = hidKeysHeld();
 				hidCircleRead(&posCp);
@@ -1467,24 +1502,38 @@ int main() {
 				else
 					vjoy_udp_client_update(&udpclient, kHeld, &posCp, &posStk, &touch, NULL, NULL);
 			}
-			if (config.ctr_dsu_enable) {
-				dsu_server_run(&dsuserver);
-				dsu_server_update(&dsuserver, kHeld, &posCp, &posStk, &touch, &accel, &gyro);
+			if (config.ctr_dsu_enable &&
+				(dsu_server_run(&dsuserver) ||
+				dsu_server_update(&dsuserver, kHeld, &posCp, &posStk, &touch, &accel, &gyro)))
+			{
+				dsu_server_shutdown(&dsuserver);
+				config.ctr_dsu_enable = 0;
+				--active;
 			}
 
 			// audio stream
-			if (config.enableaudio)
-				run_stream();
+			if (config.enableaudio && run_stream()) {
+				stop_stream();
+				config.enableaudio = 0;
+				--active;
+			}
 			// vnc integration
-			i=WaitForMessage(cl,10);
-			if(i<0) break; // todo: add error waiting
-			if(i) {
-				if (!HandleRFBServerMessage(cl)) break; // todo: add error handling
+			if (cl) {
+				i=WaitForMessage(cl,10);
+				if(i<0 || (i>0 && !HandleRFBServerMessage(cl))) {
+					rfbClientErr("VNC: error waiting for or processing messages");				
+					rfbClientCleanup(cl);
+					cl=NULL;
+					--active;
+				}
 			}
 			if (cl2) {
 				i=WaitForMessage(cl2,10);
 				if(i<0) {
 					rfbClientErr("BottomVNC: error waiting for messages");				
+					rfbClientCleanup(cl2);
+					cl2=NULL;
+					--active;
 				}
 				if (i) {
 					if (HandleRFBServerMessage(cl2)) {uib_update(UIB_RECALC_VNC);
@@ -1492,23 +1541,25 @@ int main() {
 						rfbClientErr("BottomVNC: error processing messages");
 						rfbClientCleanup(cl2);
 						cl2=NULL;
+						--active;
 					}
 				}
 			}
 		}
+		// cleanup udp client / dsu server
 		if (config.ctr_dsu_enable)
 			dsu_server_shutdown(&dsuserver);
-
-		if (config.ctr_udp_enable) {
+		if (config.ctr_udp_enable)
 			vjoy_udp_client_shutdown(&udpclient);
-			if (config.ctr_udp_motion) {
-				HIDUSER_DisableAccelerometer();
-				HIDUSER_DisableGyroscope();
-			}
-		}
+		HIDUSER_DisableAccelerometer();
+		HIDUSER_DisableGyroscope();
+
+		// clean up audio stream
 		if (config.enableaudio)
 			stop_stream();
+		// clean up VNC clients
 		cleanup();
+
 		uib_enable_keyboard(0);
 		uib_setBacklight(1);
 		if (!ext) { // means, we exited due to an error
