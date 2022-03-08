@@ -22,7 +22,7 @@
 uikbd_key uikbd_keypos[] = {
 	//  x,  y,   w,   h,            key,      shftkey,stky, repeat, name
 	// toggle kb button
-	{ 284,-15,  36,  15,              1,            0,   0,      0, "ToggleKB"},
+	{ 284,-15,  36,  15,              2,            0,   0,      0, "ToggleKB"},
 	// 1st Row
 	{   0,  0,  20,  20,      XK_Escape,            0,   0,      1, "ESC"},
 	{  20,  0,  20,  20,          XK_F1,            0,   0,      1, "F1"},
