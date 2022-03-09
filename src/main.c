@@ -111,6 +111,7 @@ struct { int sdl; int rfb; } buttonMapping[]={
 };
 
 const char *config_filename = "/3ds/TinyVNC/vnc.cfg";
+const char *keymap_filename = "/3ds/TinyVNC/keymap";
 #define BUFSIZE 1024
 static vnc_config conf[NUMCONF] = {0};
 static int cpy = -1;
@@ -253,83 +254,153 @@ static void cleanup()
   uibvnc_cleanup();
 }
 
+enum buttons {
+	BUT_A = 1,
+	BUT_B,
+	BUT_X,
+	BUT_Y,
+	BUT_SELECT,
+	BUT_START,
+	BUT_L,
+	BUT_R,
+	BUT_ZL,
+	BUT_ZR,
+	BUT_DPUP,
+	BUT_DPDOWN,
+	BUT_DPLEFT,
+	BUT_DPRIGHT,
+	BUT_CPUP,
+	BUT_CPDOWN,
+	BUT_CPLEFT,
+	BUT_CPRIGHT,
+	BUT_CSUP,
+	BUT_CSDOWN,
+	BUT_CSLEFT,
+	BUT_CSRIGHT,
+	BUT_A_M = 33,
+	BUT_B_M,
+	BUT_X_M,
+	BUT_Y_M,
+	BUT_SELECT_M,
+	BUT_START_M,
+	BUT_L_M,
+	BUT_R_M,
+	BUT_ZL_M,
+	BUT_ZR_M,
+	BUT_DPUP_M,
+	BUT_DPDOWN_M,
+	BUT_DPLEFT_M,
+	BUT_DPRIGHT_M,
+	BUT_CPUP_M,
+	BUT_CPDOWN_M,
+	BUT_CPLEFT_M,
+	BUT_CPRIGHT_M,
+	BUT_CSUP_M,
+	BUT_CSDOWN_M,
+	BUT_CSLEFT_M,
+	BUT_CSRIGHT_M,
+	BUT_END
+};
+
+// default key mappings ===============================================================
+// values as per https://libvnc.github.io/doc/html/keysym_8h_source.html
+// 1 = meta button
+// 2 = toggle keyboard
+// 3 = disconnect
+// 4 = toggle topscreen scaling
+// 5 = toggle bottom screen backlight
+// 6 = toggle touch events target (top or bottom)
+// 16-20 = mouse button 1-5 (16=left, 17=middle, 18=right, 19=wheelup, 20=wheeldown)
+static struct {
+	char *name;
+	int sdl_key;
+	int rfb_key;
+} buttons3ds[] = {
+	{"A",					BUT_A,			XK_a	},
+	{"B",					BUT_B,			XK_b	},
+	{"X",					BUT_X,			XK_x	},
+	{"Y",					BUT_Y,			XK_y	},
+	{"SELECT",				BUT_SELECT,		1		},	// meta key
+	{"START",				BUT_START,		XK_Return},
+	{"L",					BUT_L,			XK_q	},
+	{"R",					BUT_R,			XK_w	},
+	{"ZL",					BUT_ZL,			XK_1	},
+	{"ZR",					BUT_ZR,			XK_2	},
+	{"DPAD_UP",				BUT_DPUP,		XK_t	},
+	{"DPAD_DOWN",			BUT_DPDOWN,		XK_g	},
+	{"DPAD_LEFT",			BUT_DPLEFT,		XK_f	},
+	{"DPAD_RIGHT",			BUT_DPRIGHT,	XK_h	},
+	{"CPAD_UP",				BUT_CPUP,		XK_Up	},
+	{"CPAD_DOWN",			BUT_CPDOWN,		XK_Down	},
+	{"CPAD_LEFT",			BUT_CPLEFT,		XK_Left	},
+	{"CPAD_RIGHT",			BUT_CPRIGHT,	XK_Right},
+	{"CSTCK_UP",			BUT_CSUP,		XK_i	},
+	{"CSTCK_DOWN",			BUT_CSDOWN,		XK_k	},
+	{"CSTCK_LEFT",			BUT_CSLEFT,		XK_j	},
+	{"CSTCK_RIGHT",			BUT_CSRIGHT,	XK_l	},
+	{"A_META",				BUT_A_M,		XK_A	},
+	{"B_META",				BUT_B_M,		XK_B	},
+	{"X_META",				BUT_X_M,		6		},	// toggle touch event target
+	{"Y_META",				BUT_Y_M,		XK_Y	},
+	{"SELECT_META",			BUT_SELECT_M,	1		},	// meta
+	{"START_META",			BUT_START_M,	3		},	// disconnect
+	{"L_META",				BUT_L_M,		XK_Q	},
+	{"R_META",				BUT_R_M,		XK_W	},
+	{"ZL_META",				BUT_ZL_M,		XK_3	},
+	{"ZR_META",				BUT_ZR_M,		XK_4	},
+	{"DPAD_UP_META",		BUT_DPUP_M,		XK_T	},
+	{"DPAD_DOWN_META",		BUT_DPDOWN_M,	XK_G	},
+	{"DPAD_LEFT_META",		BUT_DPLEFT_M,	XK_F	},
+	{"DPAD_RIGHT_META",		BUT_DPRIGHT_M,	XK_H	},
+	{"CPAD_UP_META",		BUT_CPUP_M,		XK_Up	},
+	{"CPAD_DOWN_META",		BUT_CPDOWN_M,	XK_Down	},
+	{"CPAD_LEFT_META",		BUT_CPLEFT_M,	XK_Left	},
+	{"CPAD_RIGHT_META",		BUT_CPRIGHT_M,	XK_Right},
+	{"CSTCK_UP_META",		BUT_CSUP_M,		XK_I	},
+	{"CSTCK_DOWN_META",		BUT_CSDOWN_M,	XK_K	},
+	{"CSTCK_LEFT_META",		BUT_CSLEFT_M,	XK_J	},
+	{"CSTCK_RIGHT_META",	BUT_CSRIGHT_M,	XK_L	},
+	{NULL,0,0}
+};
+
+static int rfbkeys[64] = {0};
+
 // function for translating the joystick events to keyboard events (analog to old SDL version)
 #define THRESHOLD 16384
 static void map_joy_to_key(SDL_Event *e)
 {
 	static int old_status = 0;
 	static int old_dp_status = 0;
-	static int meta = 0;
 	int i1,i2, status;
 
-	// key mappings =================================================================
-	// values as per https://libvnc.github.io/doc/html/keysym_8h_source.html
-	// 1 = meta button
-	// 2 = toggle keyboard
-	// 3 = disconnect
-	// 4 = toggle topscreen scaling
-	// 5 = toggle bottom screen backlight
-	// 6 = toggle touch/button events target (top or bottom)
-	// 16-20 = mouse button 1-5 (16=left, 17=middle, 18=right, 19=wheelup, 20=wheeldown)
-
 	static int buttonkeys[10]={
-		XK_Escape,	// START
-		XK_a,	// A
-		XK_b,	// B
-		XK_x,	// X
-		XK_y,	// Y
-		XK_q,	// L
-		XK_w,	// R
-		1,		// SELECT (= meta)
-		XK_1,	// ZL
-		XK_2	// ZR
-	};
-
-	static int buttonkeys_meta[10]={
-		3,		// START (= disconnect)
-		XK_A,	// A
-		XK_B,	// B
-		6,		// X (toggle target)
-		XK_Y,	// Y
-		XK_Q,	// L
-		XK_W,	// R
-		1,		// SELECT (= meta)
-		XK_3,	// ZL
-		XK_4	// ZR
+		BUT_START,
+		BUT_A,
+		BUT_B,
+		BUT_X,
+		BUT_Y,
+		BUT_L,
+		BUT_R,
+		BUT_SELECT,
+		BUT_ZL,
+		BUT_ZR
 	};
 
 	static int axiskeys[8]={
-		XK_Right,	// C-PAD RIGHT
-		XK_Left,	// C-PAD LEFT
-		XK_Down,	// C-PAD DOWN
-		XK_Up,	// C-PAD UP
-		XK_l, // C-STICK RIGHT
-		XK_j, // C-STICK LEFT
-		XK_k, // C-STICK DOWN
-		XK_i // C-STICK UP
+		BUT_CPRIGHT,
+		BUT_CPLEFT,
+		BUT_CPDOWN,
+		BUT_CPUP,
+		BUT_CSRIGHT,
+		BUT_CSLEFT,
+		BUT_CSDOWN,
+		BUT_CSUP
 	};
-	static int axiskeys_meta[8]={
-		XK_Right,	// C-PAD RIGHT
-		XK_Left,	// C-PAD LEFT
-		XK_Down,	// C-PAD DOWN
-		XK_Up,	// C-PAD UP
-		XK_L, // C-STICK RIGHT
-		XK_J, // C-STICK LEFT
-		XK_K, // C-STICK DOWN
-		XK_I // C-STICK UP
-	};
-
 	static int hatkeys[4]={
-		XK_t,	// D-PAD UP
-		XK_h,	// D-PAD RIGHT
-		XK_g,	// D-PAD DOWN
-		XK_f	// D-PAD LEFT
-	};
-	static int hatkeys_meta[4]={
-		XK_T,	// D-PAD UP
-		XK_H,	// D-PAD RIGHT
-		XK_G,	// D-PAD DOWN
-		XK_F	// D-PAD LEFT
+		BUT_DPUP,
+		BUT_DPRIGHT,
+		BUT_DPDOWN,
+		BUT_DPLEFT
 	};
 
 	switch (e->type) {
@@ -339,7 +410,7 @@ static void map_joy_to_key(SDL_Event *e)
 			for (i1 = 0; i1 < 4; ++i1) {
 				i2 = 1 << i1;
 				if ((status & i2) != (old_dp_status & i2))
-					push_key_event(meta?hatkeys_meta[i1]:hatkeys[i1], status & i2);
+					push_key_event(hatkeys[i1], status & i2);
 			}
 			old_dp_status = status;
 		}
@@ -347,13 +418,9 @@ static void map_joy_to_key(SDL_Event *e)
 	case SDL_JOYBUTTONDOWN:
 	case SDL_JOYBUTTONUP:
 		i1 = e->type == SDL_JOYBUTTONDOWN ? 1 : 0;
-		if (buttonkeys[e->jbutton.button] == 1) {
-			meta = i1;
-		} else {
-			make_key_event(e,
-				meta?buttonkeys_meta[e->jbutton.button]:buttonkeys[e->jbutton.button],
-				i1);
-		}
+		make_key_event(e,
+			buttonkeys[e->jbutton.button],
+			i1);
 		break;
 	case SDL_JOYAXISMOTION:
 		i1 = 3 << (e->jaxis.axis * 2);
@@ -363,7 +430,7 @@ static void map_joy_to_key(SDL_Event *e)
 			for (i1 = 0; i1 < 8; ++i1) {
 				i2 = 1 << i1;
 				if ((status & i2) != (old_status & i2))
-					push_key_event(meta?axiskeys_meta[i1]:axiskeys[i1], status & i2);
+					push_key_event(axiskeys[i1], status & i2);
 			}
 			old_status = status;
 		}
@@ -409,6 +476,7 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 {
 	// pointer positions
 	static double xf=0.0,yf=0.0;
+	static int meta = 0;
 	
 	int s;
 	map_joy_to_key(e);
@@ -526,15 +594,12 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 	}
 	case SDL_KEYUP:
 	case SDL_KEYDOWN:
-		s =  e->key.keysym.sym;
-		if (s == 3)
+		s =  e->key.keysym.sym + meta < BUT_END ? rfbkeys[e->key.keysym.sym + meta] : XK_VoidSymbol;
+		if (s == 1) {
+			meta = e->type == SDL_KEYDOWN ? 32 : 0;
+			break;
+		} else if (s == 3) {
 			return 0; // disconnect
-		if (viewOnly) break;
-		if (s>15 && s<21) {
-			// mouse button 1-5: 16-20
-			record_mousebutton_event(s-15, e->type == SDL_KEYDOWN?1:0);
-			if (config.ctr_vnc_touch) SendPointerEvent((cl2 && config.eventtarget)?cl2:cl, x, y, buttonMask);
-			buttonMask &= ~(rfbButton4Mask | rfbButton5Mask); // clear wheel up and wheel down state
 		} else if (s == 4) {
 			if (e->type == SDL_KEYDOWN) {
 				// toggle top screen scaling
@@ -545,20 +610,30 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 					SendFramebufferUpdateRequest(cl, 0, 0, cl->width, cl->height, FALSE);
 				}
 			}
+			break;
 		} else if (s == 5) {
 			if (e->type == SDL_KEYDOWN) {
 				// toggle bottom screen backlight
 				uib_setBacklight(!uib_getBacklight());
 			}
+			break;
 		} else if (s == 6) {
 			if (cl2 && cl && e->type == SDL_KEYDOWN) {
-				// toggle event target
+				// toggle touch event target
 				config.eventtarget = !config.eventtarget;
 				if (cl->appData.useRemoteCursor != config.eventtarget) {
 					cl->appData.useRemoteCursor = config.eventtarget;
 					SetFormatAndEncodings(cl);
 				}
 			}
+			break;
+		}
+		if (viewOnly) break;
+		if (s>15 && s<21) {
+			// mouse button 1-5: 16-20
+			record_mousebutton_event(s-15, e->type == SDL_KEYDOWN?1:0);
+			if (config.ctr_vnc_touch) SendPointerEvent((cl2 && config.eventtarget)?cl2:cl, x, y, buttonMask);
+			buttonMask &= ~(rfbButton4Mask | rfbButton5Mask); // clear wheel up and wheel down state
 		} else {
 			if (config.ctr_vnc_keys) SendKeyEvent((cl2 && config.eventtarget)?cl2:cl, s, e->type == SDL_KEYDOWN ? TRUE : FALSE);
 		}
@@ -931,29 +1006,29 @@ static int editconfig(vnc_config *c) {
 				safeexit();
 			map_joy_to_key(&e);
 			if (e.type == SDL_KEYDOWN) {
-				switch (e.key.keysym.sym) {
-				case XK_q:
-				case XK_w:
+				switch ((enum buttons)e.key.keysym.sym) {
+				case BUT_L:
+				case BUT_R:
 					page = (page + 1) % 2;
 					if (page == 0 && sel != EDITCONF_NAME)
 						sel = EDITCONF_HOST;
 					if (page == 1 && sel != EDITCONF_NAME)
 						sel = EDITCONF_ENABLEAUDIO;
 					upd = 1; break;
-				case XK_b:
+				case BUT_B:
 					ret=-1; break;
-				case XK_y:
+				case BUT_Y:
 					// validate input
 					if (!nc.host[0]) {
 						msg = "Host name is required";
 					} else ret=1;
 					break;
-				case XK_Down:
-				case XK_Right:
-				case XK_g:
-				case XK_h:
-				case XK_k:
-				case XK_l:
+				case BUT_CPDOWN:
+				case BUT_CPRIGHT:
+				case BUT_CSDOWN:
+				case BUT_CSRIGHT:
+				case BUT_DPDOWN:
+				case BUT_DPRIGHT:
 					sel = (sel + 1) % EDITCONF_END;
 					if (page == 0) {
 						if (sel == EDITCONF_ENABLEAUDIO) sel = 0;
@@ -967,12 +1042,12 @@ static int editconfig(vnc_config *c) {
 					}
 					upd = 1;
 					break;
-				case XK_Up:
-				case XK_Left:
-				case XK_t:
-				case XK_f:
-				case XK_i:
-				case XK_j:
+				case BUT_CPUP:
+				case BUT_CPLEFT:
+				case BUT_CSUP:
+				case BUT_CSLEFT:
+				case BUT_DPUP:
+				case BUT_DPLEFT:
 					sel = (sel + EDITCONF_END - 1) % EDITCONF_END;
 					if (page == 0) {
 						if (sel >= EDITCONF_ENABLEAUDIO) sel = EDITCONF_ENABLEAUDIO-1;
@@ -986,7 +1061,7 @@ static int editconfig(vnc_config *c) {
 					}
 					upd = 1;
 					break;
-				case XK_a:
+				case BUT_A:
 					upd = 1;
 					switch (sel) {
 					case EDITCONF_NAME: // entry name
@@ -1185,6 +1260,8 @@ static void readconfig() {
 			long int sz = ftell(f);
 			fseek(f, 0L, SEEK_SET);
 			if (sz == sizeof(vnc_config_0_9) * NUMCONF) {
+				// starting for first time after upgrade from 0.9, delete the keymap file
+				unlink(keymap_filename);
 				// read 0.9 config
 				vnc_config_0_9 c[NUMCONF] = {0};
 				fread((void*)c, sizeof(vnc_config_0_9), NUMCONF, f);
@@ -1196,7 +1273,9 @@ static void readconfig() {
 					strcpy(conf[i].pass, c[i].pass);
 				}
 			} else if (sz == sizeof(vnc_config_1_0) * NUMCONF) {
-				// starting for first time after upgrade from 1.0, read 1.0 config
+				// starting for first time after upgrade from 1.0, delete the keymap file (again :-()
+				unlink(keymap_filename);
+				// read 1.0 config
 				vnc_config_1_0 c[NUMCONF] = {0};
 				fread((void*)c, sizeof(vnc_config_1_0), NUMCONF, f);
 				for(int i=0; i<NUMCONF; ++i) {
@@ -1251,38 +1330,44 @@ static int getconfig(vnc_config *c) {
 				safeexit();
 			map_joy_to_key(&e);
 			if (e.type == SDL_KEYDOWN) {
-				switch (e.key.keysym.sym) {
-				case XK_b:
+				switch ((enum buttons)e.key.keysym.sym) {
+				case BUT_B:
 					ret=1; break;
-				case XK_Down:
-				case XK_g:
-				case XK_k:
+				case BUT_CPDOWN:
+				case BUT_CPRIGHT:
+				case BUT_CSDOWN:
+				case BUT_CSRIGHT:
+				case BUT_DPDOWN:
+				case BUT_DPRIGHT:
 					sel = (sel+1) % NUMCONF;
 					upd = 1;
 					break;
-				case XK_Up:
-				case XK_t:
-				case XK_i:
+				case BUT_CPUP:
+				case BUT_CPLEFT:
+				case BUT_CSUP:
+				case BUT_CSLEFT:
+				case BUT_DPUP:
+				case BUT_DPLEFT:
 					sel = (sel+NUMCONF-1) % NUMCONF;
 					upd = 1;
 					break;
-				case XK_x:
+				case BUT_X:
 					conf[sel] = default_config;
 					upd = 1;
 					break;
-				case XK_w:
+				case BUT_R:
 					if (conf[sel].host[0])
 						cpy = sel;
 					else cpy = -1;
 					upd = 1;
 					break;
-				case XK_q:
+				case BUT_L:
 					if (cpy != -1)
 						conf[sel]=conf[cpy];
 					cpy = -1;
 					upd = 1;
 					break;
-				case XK_a:
+				case BUT_A:
 					if (conf[sel].host[0]) {
 						*c = conf[sel];
 						ret=0;
@@ -1291,7 +1376,7 @@ static int getconfig(vnc_config *c) {
 					}
 					upd = 1;
 					break;
-				case XK_y:
+				case BUT_Y:
 					editconfig(&(conf[sel]));
 					upd = 1;
 					break;
@@ -1313,6 +1398,61 @@ static void safeexit() {
 	SDL_Quit();
 	uib_setBacklight(1);
 	exit(0);
+}
+
+static void readkeymaps(char *cname) {
+	FILE *f=NULL;
+	int i, x;
+	char name[32], *p=NULL, *fn=NULL, buf[BUFSIZE];
+
+	// clear current keymap
+	bzero(rfbkeys, sizeof(rfbkeys));
+	if (cname && cname[0]) {
+		p=malloc(strlen(keymap_filename)+2+strlen(cname));
+		strcpy(p, keymap_filename);
+		sprintf(strrchr(p,'/'),"/%s.keymap", cname);
+	}
+	if( (p && (f=fopen(p, "r"))!=NULL && (fn=p)) ||
+		((f=fopen(keymap_filename, "r"))!=NULL && (fn=(char*)keymap_filename))) {
+		rfbClientLog("Reading keymap from %s", fn);
+		while (fgets(buf, BUFSIZE, f)) {
+			if (buf[0]=='#' || sscanf(buf,"%s %x\n",name, &x) != 2) continue;
+			for (i=0; buttons3ds[i].name != NULL; ++i) {
+				if (strcmp(buttons3ds[i].name, name)==0 && buttons3ds[i].sdl_key < BUT_END) {
+					rfbkeys[buttons3ds[i].sdl_key] = x;
+					break;
+				}
+			}
+		}
+		fclose(f);
+	} else {
+		// set and save default keymap
+		for (i=1; buttons3ds[i].name != NULL; ++i)
+			rfbkeys[buttons3ds[i].sdl_key] = buttons3ds[i].rfb_key;
+
+		if ((f=fopen(keymap_filename, "w"))!=NULL) {
+			rfbClientLog("Saving standard keymap to %s", keymap_filename);
+
+			fprintf(f,
+				"# values as per https://libvnc.github.io/doc/html/keysym_8h_source.html\n"
+				"# 1 = meta button\n"
+				"# 2 = toggle keyboard\n"
+				"# 3 = disconnect\n"
+				"# 4 = toggle topscreen scaling\n"
+				"# 5 = toggle bottom screen backlight\n"
+				"# 6 = toggle touch/button events target (top or bottom)\n"
+				"# 16-20 = mouse button 1-5 (16=left, 17=middle, 18=right, 19=wheelup, 20=wheeldown)\n\n"
+			);
+			for (i=1; buttons3ds[i].name != NULL; ++i) {
+				fprintf(f,"%s\t%s0x%04X\n",
+					buttons3ds[i].name,
+					buttons3ds[i].rfb_key < 0 ? "-" : "",
+					abs(buttons3ds[i].rfb_key));
+			}
+			fclose(f);
+		}
+	}
+	if (p) free(p);
 }
 
 void aptHookFunc(APT_HookType hookType, void *param)
@@ -1397,6 +1537,8 @@ int main() {
 			"TinyVNC",
 			buf};
 		int argc = sizeof(argv)/sizeof(char*);
+
+		readkeymaps(config.name);
 
 		// top screen VNC
 		if (!config.vncoff) {
@@ -1582,9 +1724,9 @@ int main() {
 					if (uib_handle_event(&e, 0)) continue;
 					map_joy_to_key(&e);
 					if (e.type == SDL_KEYDOWN) {
-						if (e.key.keysym.sym == XK_a)
+						if ((enum buttons)e.key.keysym.sym == BUT_A)
 							break;
-						if (e.key.keysym.sym == XK_b)
+						if ((enum buttons)e.key.keysym.sym == BUT_B)
 							goto quit;
 					}
 				}
