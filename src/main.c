@@ -425,8 +425,8 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 
 		if (tcl != cl) { // bottom screen always uses direct coodinates, not relative
 			// get and translate the positions
-			int x1=(e->type == SDL_MOUSEMOTION ? e->motion.x : e->button.x) * 320 / cl->updateRect.w;
-			int y1=(e->type == SDL_MOUSEMOTION ? e->motion.y : e->button.y) * 240 / cl->updateRect.h;
+			int x1=(e->type == SDL_MOUSEMOTION ? e->motion.x : e->button.x) * 320 / sdl->w;
+			int y1=(e->type == SDL_MOUSEMOTION ? e->motion.y : e->button.y) * 240 / sdl->h;
 			x = ((x1 - uibvnc_x) * tcl->updateRect.w) / uibvnc_w;
 			y = ((y1 - uibvnc_y) * tcl->updateRect.h) / uibvnc_h;
 			xf=(double)x;
@@ -479,8 +479,8 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 								.motion.type = SDL_MOUSEMOTION,
 								.motion.state = 1,
 								.motion.which = 2, // identify as autoscrolling
-								.motion.x = (x1 * cl->updateRect.w) / 320,
-								.motion.y = (y1 * cl->updateRect.h) / 240
+								.motion.x = (x1 * sdl->w) / 320,
+								.motion.y = (y1 * sdl->h) / 240
 							});
 						}
 					}
@@ -493,8 +493,8 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 
 		if (e->type == SDL_MOUSEMOTION) {
 			if (tcl == cl) {
-				double xrel = (double)e->motion.xrel * (config.scaling?1.0:(400.0 / (double)cl->updateRect.w));
-				double yrel = (double)e->motion.yrel * (config.scaling?1.0:(240.0 / (double)cl->updateRect.h));
+				double xrel = (double)e->motion.xrel * (config.scaling?1.0:(400.0 / (double)sdl->w));
+				double yrel = (double)e->motion.yrel * (config.scaling?1.0:(240.0 / (double)sdl->h));
 				xf += xrel;
 				if (xf < 0.0) xf=0.0;
 				if (xf > (double)tcl->updateRect.w) xf=(double)tcl->updateRect.w;
@@ -539,9 +539,11 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 			if (e->type == SDL_KEYDOWN) {
 				// toggle top screen scaling
 				config.scaling = !config.scaling;
-				// resize the SDL screen
-				resize(cl);
-				SendFramebufferUpdateRequest(cl, 0, 0, cl->width, cl->height, FALSE);
+				if (cl) {
+					// resize the SDL screen
+					resize(cl);
+					SendFramebufferUpdateRequest(cl, 0, 0, cl->width, cl->height, FALSE);
+				}
 			}
 		} else if (s == 5) {
 			if (e->type == SDL_KEYDOWN) {
@@ -1465,7 +1467,7 @@ int main() {
 			// set up event handling
 			if (evtarget != (cl2!=NULL && config.eventtarget!=0)) {
 				evtarget = (cl2!=NULL && config.eventtarget!=0);
-				cl->appData.useRemoteCursor = evtarget;
+				if (cl) cl->appData.useRemoteCursor = evtarget;
 				if (cl2) cl2->appData.useRemoteCursor = !evtarget;
 				taphandling = evtarget ? !config.notaphandling : 1;
 			}

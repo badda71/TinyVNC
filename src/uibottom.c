@@ -280,11 +280,11 @@ void checkKeyRepeat() {
 		}
 		break;
 	}
-	extern rfbClient* cl;
+	extern rfbClient *cl, *cl2;
 	if (send) {
 		if (send == -1) {
 			// do not send keyup events for repeating when RFB connection is active
-			if (!cl) push_key_event_norepeat(keydown, 0);
+			if ((!cl) && (!cl2)) push_key_event_norepeat(keydown, 0);
 		} else {
 			push_key_event_norepeat(keydown, 1);
 		}
