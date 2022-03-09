@@ -1413,6 +1413,7 @@ int main() {
 			cl2->canHandleNewFBSize = TRUE;
 			cl2->GetCredential = get_credential;
 			cl2->GetPassword = get_password;
+			cl2->appData.useRemoteCursor = TRUE; // never show cursor on bottom screen, just like a touch screen
 			uibvnc_setScaling(config.scaling2);
 			snprintf(buf, sizeof(buf),"%s:%d",config.host, config.port2);
 			rfbClientLog("Connecting2 to %s", buf);
@@ -1468,7 +1469,6 @@ int main() {
 			if (evtarget != (cl2!=NULL && config.eventtarget!=0)) {
 				evtarget = (cl2!=NULL && config.eventtarget!=0);
 				if (cl) cl->appData.useRemoteCursor = evtarget;
-				if (cl2) cl2->appData.useRemoteCursor = !evtarget;
 				taphandling = evtarget ? !config.notaphandling : 1;
 			}
 			// handle events
