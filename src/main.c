@@ -267,7 +267,7 @@ static void map_joy_to_key(SDL_Event *e)
 	// 1 = meta button
 	// 2 = toggle keyboard
 	// 3 = disconnect
-	// 4 = toggle scaling
+	// 4 = toggle topscreen scaling
 	// 5 = toggle bottom screen backlight
 	// 6 = toggle touch/button events target (top or bottom)
 	// 16-20 = mouse button 1-5 (16=left, 17=middle, 18=right, 19=wheelup, 20=wheeldown)
@@ -286,10 +286,10 @@ static void map_joy_to_key(SDL_Event *e)
 	};
 
 	static int buttonkeys_meta[10]={
-		3,		// START
+		3,		// START (= disconnect)
 		XK_A,	// A
 		XK_B,	// B
-		XK_C,	// X
+		6,		// X (toggle target)
 		XK_Y,	// Y
 		XK_Q,	// L
 		XK_W,	// R
@@ -551,9 +551,13 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 				uib_setBacklight(!uib_getBacklight());
 			}
 		} else if (s == 6) {
-			if (cl2 && e->type == SDL_KEYDOWN) {
+			if (cl2 && cl && e->type == SDL_KEYDOWN) {
 				// toggle event target
 				config.eventtarget = !config.eventtarget;
+				if (cl->appData.useRemoteCursor != config.eventtarget) {
+					cl->appData.useRemoteCursor = config.eventtarget;
+					SetFormatAndEncodings(cl);
+				}
 			}
 		} else {
 			if (config.ctr_vnc_keys) SendKeyEvent((cl2 && config.eventtarget)?cl2:cl, s, e->type == SDL_KEYDOWN ? TRUE : FALSE);

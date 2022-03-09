@@ -293,12 +293,12 @@ static int dsu_process_message(struct dsu_server *server, u8 *buf, int len, stru
 			c = malloc(sizeof(*c));
 			bzero(c, sizeof(*c));
 			c->id = clientID;
+			c->prev = server->cli_last;
 			if (!server->cli_first) {
 				server->cli_first = c;
 			} else {
 				server->cli_last->next = c;
 			}	
-			c->prev = server->cli_last;
 			server->cli_last = c;
 		}
 		// update timestamp and address
@@ -476,7 +476,7 @@ int dsu_server_update(struct dsu_server *server, u32 but, circlePosition *posCp,
 		if (tim - c->timestamp > CLIENT_TIMEOUT) {
 			// remove client and move to next
 			if (server->cli_first == c) server->cli_first = c->next;
-			if (server->cli_last == c) server->cli_last = c->next;
+			if (server->cli_last == c) server->cli_last = c->prev;
 			if (c->prev) c->prev->next = c->next;
 			if (c->next) c->next->prev = c->prev;
 			c1 = c->next;
