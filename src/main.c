@@ -1358,12 +1358,8 @@ int main() {
 	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK);
 	SDL_JoystickOpen(0);
 
-	sdl=SDL_SetVideoMode(400,240,32, SDL_TOPSCR);
 	SDL_ShowCursor(SDL_DISABLE);
 	bgimg = myIMG_Load("romfs:/background.png");
-
-	SDL_BlitSurface(bgimg, NULL, sdl, NULL);
-	SDL_Flip(sdl);
 
 	mkpath(config_filename, 0);
 
@@ -1378,6 +1374,12 @@ int main() {
 	aptHook(&cookie, aptHookFunc, NULL);
 
 	while (1) {
+		// show logo
+		uib_show_scrollbars(0,0,400,240);
+		sdl=SDL_SetVideoMode(400,240,32, SDL_TOPSCR);
+		SDL_BlitSurface(bgimg, NULL, sdl, NULL);
+		SDL_Flip(sdl);
+
 		// get config
 		if (getconfig(&config) ||
 			config.host[0] == 0) goto quit;
