@@ -12,122 +12,141 @@
 #include <malloc.h>
 #include <string.h>
 #include <curl/curl.h>
-#include <mpg123.h>
 #include <rfb/rfbclient.h> // only for logging functions
 #include "httpstatuscodes_c.h"
 #include "streamclient.h"
-
-#define BITS 8
+#include "decoder.h"
+#include "mp3decoder.h"
+//#include "opusdecoder.h"
 
 /* Channel to play music on */
 #define CHANNEL	0x08
-//#define WAVBUFNR 64
 
-static mpg123_handle	*mh = NULL;
-static ndspWaveBuf		*ndsp_waveBuf;
-static int				ndsp_activeBuf = 0;
-//static int				choked = 0;
+typedef struct _waveBuffer {
+	struct _waveBuffer *next;
+	ndspWaveBuf buf;
+} waveBuffer;
+
+// CURL variables
 static CURL				*curl = NULL;
 static CURLM			*mcurl = NULL;
-static int				ndsp_channels = 0;
-static int				wavbufnr = 0;
 static int				still_running = 0;
+static int				curl_paused = 0;
 
-static void sound_free() {
+// audio / ndsp variables
+static waveBuffer		*waveBuf_tail = NULL;
+static waveBuffer		*waveBuf_head = NULL;
+static u32				queuedSamples = 0;
+static int				ndsp_channels = 0;
+static int				ndsp_rate = 0;
+static int				max_wavbuf_size = 0;
+
+// decoder specific variables
+static audioDecoder		decoder={0};
+static int				stream_bitrate=0;
+static char				*stream_type=NULL;
+
+void sound_close()
+{
+	// stop playing
 	ndspChnReset(CHANNEL);
 	ndspChnWaveBufClear(CHANNEL);
-	if (ndsp_waveBuf) {
-		for (int i=0; i<wavbufnr; ++i) {
-			if (ndsp_waveBuf[i].data_vaddr) linearFree((void*)ndsp_waveBuf[i].data_vaddr);
-			ndsp_waveBuf[i].data_vaddr=NULL;
-			ndsp_waveBuf[i].status = NDSP_WBUF_DONE;
-		}
-		free(ndsp_waveBuf);
-		ndsp_waveBuf = NULL;
-		wavbufnr = 0;
+	// free all sound buffers
+	while (waveBuf_tail) {
+		waveBuffer *next = waveBuf_tail->next;
+		if (waveBuf_tail->buf.data_vaddr) linearFree(waveBuf_tail->buf.data_pcm8);
+		free(waveBuf_tail);
+		waveBuf_tail=next;
 	}
-	ndsp_activeBuf = 0;
+	waveBuf_head=NULL;
+	queuedSamples = ndsp_channels = ndsp_rate = 0;
 }
 
-static void sound_open(long rate, int channels, int encoding, int bufsize)
+static void sound_open(long rate, int channels)
 {
-	struct mpg123_frameinfo mi;
-	mpg123_info(mh, &mi);
-	rfbClientLog("Audio stream: mp3 %dkbps, %dHz, %d channels",mi.bitrate, rate, channels);
-	sound_free();	
-	ndspSetOutputMode(channels == MPG123_STEREO ? NDSP_OUTPUT_STEREO : NDSP_OUTPUT_MONO);
+	max_wavbuf_size = rate; // 1 second max delay
+
+	ndspSetOutputMode(channels == 2 ? NDSP_OUTPUT_STEREO : NDSP_OUTPUT_MONO);
 	ndspChnSetInterp(CHANNEL, NDSP_INTERP_POLYPHASE);
 	ndspChnSetRate(CHANNEL, (float)rate);
 	ndspChnSetFormat(CHANNEL,
-		channels == MPG123_STEREO ? NDSP_FORMAT_STEREO_PCM16 : NDSP_FORMAT_MONO_PCM16);
-	ndsp_channels = MPG123_STEREO ? 2 : 1;
+		channels == 2 ? NDSP_FORMAT_STEREO_PCM16 : NDSP_FORMAT_MONO_PCM16);
+	ndsp_channels = channels;
+}
 
-	// set up sound buffer (~1 second of sound)
-	// This means, we will max buffer one second. If the server transmits data than we can play,
-	// we will discard the buffer contents and start playing the newly transmitted data.
-	// this means: 1. on a realtime stream, we will hava a maximum latency of 1 second,
-	// if the latency becomes bigger, we will skip forward one second
-	// 2. non-realtime streams are NOT playable because we do NOT choke the connection
-	// if data comes in too fast.
-	wavbufnr = (1 * rate * channels * 2) / bufsize;
-	ndsp_waveBuf = calloc(wavbufnr, sizeof(ndspWaveBuf));
-	for (int i=0;i < wavbufnr ;i++ )
-	{
-		ndsp_waveBuf[i].status = NDSP_WBUF_DONE;
-		ndsp_waveBuf[i].data_vaddr = linearAlloc(bufsize);
+static void sound_clean_buffers() {
+	// free played sound buffers
+	waveBuffer *w;
+	while (waveBuf_tail && waveBuf_tail->buf.status == NDSP_WBUF_DONE) {
+		w = waveBuf_tail->next;
+		if (waveBuf_tail->buf.data_vaddr) linearFree(waveBuf_tail->buf.data_pcm8);
+		queuedSamples -= waveBuf_tail->buf.nsamples;
+		free(waveBuf_tail);
+		waveBuf_tail = w;
 	}
+	if (!waveBuf_tail) waveBuf_head=NULL;
 }
 
 static int sound_play(unsigned char *pbuf, size_t size)
 {
-//log_citra("enter %s",__func__);
-	if (ndsp_waveBuf[ndsp_activeBuf].status != NDSP_WBUF_DONE) {
-		ndspChnWaveBufClear(CHANNEL);
-		for (int i=0; i<wavbufnr; ++i)
-			ndsp_waveBuf[i].status = NDSP_WBUF_DONE;
+	waveBuffer *w;
+	w = calloc(1, sizeof(waveBuffer));
+	if (!w) {
+		rfbClientErr("alloc1 error");
+		return -1;
 	}
-	// set and queue a new buffer
-	memcpy((void *)ndsp_waveBuf[ndsp_activeBuf].data_vaddr, pbuf, size);
-	ndsp_waveBuf[ndsp_activeBuf].nsamples = size / (ndsp_channels * sizeof(int16_t));
-	ndspChnWaveBufAdd(CHANNEL, &ndsp_waveBuf[ndsp_activeBuf]);
-	ndsp_activeBuf = (ndsp_activeBuf + 1) % wavbufnr;
+	w->buf.data_vaddr = linearAlloc(size);
+	if (!w->buf.data_vaddr) {
+		rfbClientErr("alloc2 error");
+		return -1;
+	}
+	memcpy((void *)w->buf.data_vaddr, pbuf, size);
+	w->buf.nsamples = size / (ndsp_channels * sizeof(int16_t));
+	ndspChnWaveBufAdd(CHANNEL, &(w->buf));
+	if (!waveBuf_tail) waveBuf_tail = w;
+	if (waveBuf_head) waveBuf_head->next = w;
+	waveBuf_head = w;
+	queuedSamples += w->buf.nsamples;
 	return 0;
-}
-
-void sound_close()
-{
-	sound_free();
 }
 
 static size_t stream_write_callback(void *buffer, size_t size, size_t nmemb, void *userp) {
 //log_citra("enter %s",__func__);
-	int err;
-	off_t frame_offset;
 	unsigned char *audio;
-	size_t done;
-	int channels, encoding;
-	long rate;
+	int done;
 
-	if (mpg123_feed(mh, (const unsigned char *)buffer, size * nmemb))
+	// choke if we have already buffered enough
+	sound_clean_buffers();
+	if (queuedSamples > max_wavbuf_size) {
+		curl_paused = 1;
+		return CURL_WRITEFUNC_PAUSE;
+	}
+
+	// do we have an encoder ready already?
+	if (decoder.init == NULL) {
+		if (mp3_checkmagic(buffer) == 0) mp3_create_decoder(&decoder);
+		//else if (opus_checkmagic(buffer) == 0) opus_create_decoder(&decoder);
+		// ... add more decoders here
+		else return 0;
+		decoder.init();
+	}
+
+	// feed the decoder
+	if (decoder.feed(buffer, size * nmemb) !=0)
 		return 0;
+
+	// retreive decoded data and play
 	do {
-		err = mpg123_decode_frame(mh, &frame_offset, &audio, &done);
-		switch(err) {
-		case MPG123_NEW_FORMAT:
-			mpg123_getformat(mh, &rate, &channels, &encoding);
-			// Ensure that this output format will not change (it might, when we allow it).
-			mpg123_format_none(mh);
-			mpg123_format(mh, rate, channels, encoding);
-			// open sound output
-			sound_open(rate, channels, encoding, mpg123_outblock(mh));
-			break;
-		case MPG123_OK:
+		decoder.decode((void **)&audio, &done);
+//log_citra("decoder.decode set done to %d", done);
+		if (done < 0) return 0;
+		if (done > 0) {
+			if (!ndsp_rate) {
+				decoder.info(&stream_type, &ndsp_rate, &ndsp_channels, &stream_bitrate);
+				rfbClientLog("Audio stream: %s %dkbps, %dHz, %d channels",stream_type, stream_bitrate, ndsp_rate, ndsp_channels);
+				sound_open(ndsp_rate, ndsp_channels);
+			}
 			sound_play(audio, done);
-			break;
-		case MPG123_NEED_MORE:
-			break;
-		default: // we have an mpg error, stop the stream
-			return 0;
 		}
 	} while (done > 0);
 	return size * nmemb;
@@ -135,7 +154,43 @@ static size_t stream_write_callback(void *buffer, size_t size, size_t nmemb, voi
 
 #define HTTP_MAX_REDIRECTS 50
 #define HTTP_TIMEOUT_SEC 15
-#define HTTP_TIMEOUT_NS ((u64) HTTP_TIMEOUT_SEC * 1000000000)
+
+int stream_check_health() {
+	CURLMsg *msg=NULL;
+	int msgs_left, return_code;
+	long int http_status_code;
+
+	if (still_running <= 0) {
+		// fresh disconnect?
+		if (mcurl) {
+			// was there an error?
+			do { // dump all messages
+				msg = curl_multi_info_read(mcurl, &msgs_left);
+				if (msg && msg->msg == CURLMSG_DONE) {
+					CURL *eh = msg->easy_handle;
+					return_code = msg->data.result;
+					if (return_code == CURLE_HTTP_RETURNED_ERROR) {
+						// Get HTTP status code
+						curl_easy_getinfo(eh, CURLINFO_RESPONSE_CODE, &http_status_code);
+						if(http_status_code!=200) {
+							rfbClientErr("audio stream HTTP error: %d %s", http_status_code, HttpStatus_reasonPhrase(http_status_code));
+						}
+					} else if (return_code != CURLE_OK) {
+						if (decoder.errstr && decoder.errstr()) {
+							rfbClientErr("%s error: %s", stream_type, decoder.errstr());
+						} else {
+							rfbClientErr("audio stream error: %s", curl_easy_strerror(return_code));
+						}
+					}
+				}
+			} while (msgs_left);
+			stop_stream();
+		}
+		return 1;
+	}
+	return 0;
+}
+
 
 int start_stream(char *url, char *username, char *password)
 {
@@ -146,11 +201,7 @@ int start_stream(char *url, char *username, char *password)
 
 	rfbClientLog("Starting stream %s", url);
 	ndspInit();
-	sound_free();
-
-	mpg123_init();
-	mh = mpg123_new(NULL, NULL);
-	mpg123_open_feed(mh);
+	sound_close();
 
 	curl = curl_easy_init();
 
@@ -159,7 +210,7 @@ int start_stream(char *url, char *username, char *password)
 	char buf[200];
 	snprintf(buf,sizeof(buf),"curl/%s (Nintendo 3DS/%s) TinyVNC/%s",curl_version_info(CURLVERSION_NOW)->version, sysversion, VERSION);
 	curl_easy_setopt(curl, CURLOPT_USERAGENT, buf);
-	curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 1024L);
+	//curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 1024L);
 	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, (long) HTTP_TIMEOUT_SEC);
 	curl_easy_setopt(curl, CURLOPT_MAXREDIRS, (long) HTTP_MAX_REDIRECTS);
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
@@ -172,63 +223,42 @@ int start_stream(char *url, char *username, char *password)
 	mcurl = curl_multi_init();
 	curl_multi_add_handle(mcurl, curl);
 	curl_multi_perform(mcurl, &still_running);
-	return 0;
+	return stream_check_health();
 }
 
 void stop_stream()
 {
 	if (mcurl != NULL) {
 		rfbClientLog("Audio stream stopped");
+		// stop curl
 		curl_multi_remove_handle(mcurl, curl);
 		curl_easy_cleanup(curl);
 		curl_multi_cleanup(mcurl);
-		mpg123_close(mh);
-		mpg123_delete(mh);
-		mpg123_exit();
+		mcurl = curl = NULL;
+		// stop ndsp
 		sound_close();
 		ndspExit();
-		mh = mcurl = curl = NULL;
+		// stop decoder
+		if (decoder.close) decoder.close();
+		stream_type = (char*)(stream_bitrate = 0);
+		bzero(&decoder,sizeof(decoder));
 	}
 }
 
 int run_stream()
 {
-	CURLMsg *msg=NULL;
-	int msgs_left, return_code;
-	long int http_status_code;
+	if (curl_paused) {
+		sound_clean_buffers();
+		if (queuedSamples < max_wavbuf_size) {
+			curl_paused = 0;
+			curl_easy_pause(curl, CURLPAUSE_CONT);
+		}
+		return stream_check_health();
+	}
 
 	if (still_running > 0) {
 		curl_multi_perform(mcurl, &still_running);
 	}
 
-	// did our stream stop?
-	if (still_running <= 0) {
-		// fresh disconnect?
-		if (mcurl) {
-			// was there an error?
-			do { // get only the last message
-				msg = curl_multi_info_read(mcurl, &msgs_left);
-			} while (msgs_left);
-			if (msg && msg->msg == CURLMSG_DONE) {
-				CURL *eh = msg->easy_handle;
-				return_code = msg->data.result;
-				if (return_code == CURLE_HTTP_RETURNED_ERROR) {
-					// Get HTTP status code
-					curl_easy_getinfo(eh, CURLINFO_RESPONSE_CODE, &http_status_code);
-					if(http_status_code!=200) {
-						rfbClientErr("audio stream HTTP error: %d %s", http_status_code, HttpStatus_reasonPhrase(http_status_code));
-					}
-				} else if (return_code != CURLE_OK) {
-					if (mpg123_errcode(mh)) {
-						rfbClientErr("mp3 error: %s", mpg123_strerror(mh));
-					} else {
-						rfbClientErr("audio stream error: %s", curl_easy_strerror(return_code));
-					}
-				}
-			}
-			stop_stream();
-		}
-		return 1;
-	}
-	return 0;
+	return stream_check_health();
 }
