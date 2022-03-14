@@ -73,7 +73,6 @@ extern void uib_invert_colors();
 extern void uib_clear();
 extern SDL_Surface *myIMG_Load(char *fname);
 
-
 extern void uib_update(int what);
 extern int uib_handle_event(SDL_Event *, int taphandling);
 extern void uib_init();
@@ -83,6 +82,7 @@ extern void uib_show_scrollbars(int x, int y, int w, int h);
 #define SCROLLBAR_WIDTH 2
 extern int uib_getBacklight();
 extern void uib_setBacklight (int on);
+extern void toggle_keyboard();
 
 extern rfbBool uibvnc_resize(rfbClient*);
 extern void uibvnc_cleanup();

@@ -594,32 +594,34 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 	}
 	case SDL_KEYUP:
 	case SDL_KEYDOWN:
-		s =  e->key.keysym.sym + meta < BUT_END ? rfbkeys[e->key.keysym.sym + meta] : XK_VoidSymbol;
-		if (s == 1) {
+		s =  (e->key.keysym.sym < 32)?
+			((e->key.keysym.sym + meta < BUT_END) ? rfbkeys[e->key.keysym.sym + meta] : XK_VoidSymbol):
+			e->key.keysym.sym;
+log_msg("have keysym %d, mapping to VNC key %d",e->key.keysym.sym + meta, s);
+		if (s == 1) {				// meta key
 			meta = e->type == SDL_KEYDOWN ? 32 : 0;
 			break;
-		} else if (s == 3) {
-			return 0; // disconnect
-		} else if (s == 4) {
+		} else if (s == 2) {		// toggle keyboard
+			toggle_keyboard();
+			break;
+		} else if (s == 3) {		// disconnect
+			return 0;
+		} else if (s == 4) {		// toggle top screen scaling
 			if (e->type == SDL_KEYDOWN) {
-				// toggle top screen scaling
 				config.scaling = !config.scaling;
 				if (cl) {
-					// resize the SDL screen
 					resize(cl);
 					SendFramebufferUpdateRequest(cl, 0, 0, cl->width, cl->height, FALSE);
 				}
 			}
 			break;
-		} else if (s == 5) {
+		} else if (s == 5) {		// toggle bottom screen backlight
 			if (e->type == SDL_KEYDOWN) {
-				// toggle bottom screen backlight
 				uib_setBacklight(!uib_getBacklight());
 			}
 			break;
-		} else if (s == 6) {
+		} else if (s == 6) {		// toggle touch event target
 			if (cl2 && cl && e->type == SDL_KEYDOWN) {
-				// toggle touch event target
 				config.eventtarget = !config.eventtarget;
 				if (cl->appData.useRemoteCursor != config.eventtarget) {
 					cl->appData.useRemoteCursor = config.eventtarget;
@@ -629,8 +631,7 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 			break;
 		}
 		if (viewOnly) break;
-		if (s>15 && s<21) {
-			// mouse button 1-5: 16-20
+		if (s>15 && s<21) {			// mouse button 1-5: 16-20
 			record_mousebutton_event(s-15, e->type == SDL_KEYDOWN?1:0);
 			if (config.ctr_vnc_touch) SendPointerEvent((cl2 && config.eventtarget)?cl2:cl, x, y, buttonMask);
 			buttonMask &= ~(rfbButton4Mask | rfbButton5Mask); // clear wheel up and wheel down state
@@ -1405,8 +1406,11 @@ static void readkeymaps(char *cname) {
 	int i, x;
 	char name[32], *p=NULL, *fn=NULL, buf[BUFSIZE];
 
-	// clear current keymap
+	// clear keymap and set default
 	bzero(rfbkeys, sizeof(rfbkeys));
+	for (i=0; buttons3ds[i].name != NULL; ++i)
+		rfbkeys[buttons3ds[i].sdl_key] = buttons3ds[i].rfb_key;
+
 	if (cname && cname[0]) {
 		p=malloc(strlen(keymap_filename)+2+strlen(cname));
 		strcpy(p, keymap_filename);
@@ -1426,10 +1430,7 @@ static void readkeymaps(char *cname) {
 		}
 		fclose(f);
 	} else {
-		// set and save default keymap
-		for (i=1; buttons3ds[i].name != NULL; ++i)
-			rfbkeys[buttons3ds[i].sdl_key] = buttons3ds[i].rfb_key;
-
+		// save default keymap
 		if ((f=fopen(keymap_filename, "w"))!=NULL) {
 			rfbClientLog("Saving standard keymap to %s", keymap_filename);
 
