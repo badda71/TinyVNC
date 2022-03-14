@@ -22,7 +22,7 @@
 uikbd_key uikbd_keypos[] = {
 	//  x,  y,   w,   h,            key,      shftkey,stky, repeat, name
 	// toggle kb button
-	{ 284,-15,  36,  15,              2,            0,   0,      0, "ToggleKB"},
+	{ 284,-15,  36,  15,          0x100,            0,   0,      0, "ToggleKB"},
 	// 1st Row
 	{   0,  0,  20,  20,      XK_Escape,            0,   0,      1, "ESC"},
 	{  20,  0,  20,  20,          XK_F1,            0,   0,      1, "F1"},
@@ -622,7 +622,7 @@ void uib_enable_keyboard(int enable) {
 	requestRepaint();
 }
 
-static void toggle_keyboard() {
+void toggle_keyboard() {
 	int y1=240-kbd_spr.h;
 
 	start_worker(animate, alloc_copy(&((int[]){
@@ -1076,7 +1076,7 @@ int uib_handle_event(SDL_Event *e, int taphandling) {
 	int i,x,y;
 	static int process_touchpad = 0;
 
-	if (e->type == SDL_KEYDOWN && e->key.keysym.sym == 2) {
+	if (e->type == SDL_KEYDOWN && e->key.keysym.sym == 0x100) {
 		toggle_keyboard();
 		return 1;
 	}
