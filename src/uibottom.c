@@ -1209,8 +1209,23 @@ rfbBool uibvnc_resize(rfbClient* client) {
 
 //log_citra("enter %s, %p, %d, %d",__func__, client, client->width, client->height);
 	if (client->width > 1024 || client->height > 1024) {
-		rfbClientErr("bottom resize: screen size >1024px!");
-		return FALSE;
+		if (SupportsClient2Server(client, rfbSetScale) || SupportsClient2Server(client, rfbPalmVNCSetScaleFactor)) {
+			// set server side scaling
+			client->appData.scaleSetting = (MAX(client->width,client->height) + 1024) / 1024;
+			if (!SendScaleSetting(client, client->appData.scaleSetting))
+				return FALSE;
+			if (!SendFramebufferUpdateRequest(client,
+				client->updateRect.x / client->appData.scaleSetting,
+				client->updateRect.y / client->appData.scaleSetting,
+				client->updateRect.w / client->appData.scaleSetting,
+				client->updateRect.h / client->appData.scaleSetting,
+				FALSE))
+				return FALSE;
+			rfbClientLog("bottom screen size >1024px, set server scale to 1/%d", client->appData.scaleSetting);
+		} else {
+			rfbClientErr("bottom resize: screen size >1024px!");
+			return FALSE;
+		}
 	}
 
 	uibvnc_spr.w=client->width;

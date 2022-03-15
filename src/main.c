@@ -188,11 +188,25 @@ static rfbBool resize(rfbClient* client) {
 	int height=client->height;
 	int depth=client->format.bitsPerPixel;
 
-	if (width > 1024 || height > 1024) {
-		rfbClientErr("resize: screen size >1024px!");
-		return FALSE;
+	if (client->width > 1024 || client->height > 1024) {
+		if (SupportsClient2Server(client, rfbSetScale) || SupportsClient2Server(client, rfbPalmVNCSetScaleFactor)) {
+			// set server side scaling
+			client->appData.scaleSetting = (MAX(client->width,client->height) + 1024) / 1024;
+			if (!SendScaleSetting(client, client->appData.scaleSetting))
+				return FALSE;
+			if (!SendFramebufferUpdateRequest(client,
+				client->updateRect.x / client->appData.scaleSetting,
+				client->updateRect.y / client->appData.scaleSetting,
+				client->updateRect.w / client->appData.scaleSetting,
+				client->updateRect.h / client->appData.scaleSetting,
+				FALSE))
+				return FALSE;
+			rfbClientLog("screen size >1024px, set server scale to 1/%d", client->appData.scaleSetting);
+		} else {
+			rfbClientErr("resize: screen size >1024px!");
+			return FALSE;
+		}
 	}
-
 	client->updateRect.x = client->updateRect.y = 0;
 	client->updateRect.w = width;
 	client->updateRect.h = height;
