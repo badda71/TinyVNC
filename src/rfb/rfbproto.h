@@ -294,6 +294,8 @@ typedef char rfbProtocolVersionMsg[13];	/* allow extra byte for null */
 #define rfbVeNCrypt 19
 #define rfbSASL 20
 #define rfbARD 30
+#define rfbUltraMSLogonI 0x70	/* UNIMPLEMENTED */
+#define rfbUltraMSLogonII 0x71
 #define rfbMSLogon 0xfffffffa
 
 #define rfbVeNCryptPlain 256
@@ -426,6 +428,7 @@ typedef struct {
 #define rfbXvp 250
 /* SetDesktopSize client -> server message */
 #define rfbSetDesktopSize 251
+#define rfbQemuEvent 255
 
 
 
@@ -518,6 +521,8 @@ typedef struct {
 #define rfbEncodingQualityLevel8   0xFFFFFFE8
 #define rfbEncodingQualityLevel9   0xFFFFFFE9
 
+#define rfbEncodingQemuExtendedKeyEvent 0xFFFFFEFE /* -258 */
+#define rfbEncodingExtendedClipboard 0xC0A1E5CE
 
 /* LibVNCServer additions.   We claim 0xFFFE0000 - 0xFFFE00FF */
 #define rfbEncodingKeyboardLedState   0xFFFE0000
@@ -1392,6 +1397,17 @@ typedef struct {
 #define sz_rfbKeyEventMsg 8
 
 
+typedef struct {
+    uint8_t type;     /* always rfbQemuEvent */
+    uint8_t subtype;  /* always 0 */
+    uint16_t down;
+    uint32_t keysym;  /* keysym is specified as an X keysym, may be 0 */
+    uint32_t keycode; /* keycode is specified as XT key code */
+} rfbQemuExtendedKeyEventMsg;
+
+#define sz_rfbQemuExtendedKeyEventMsg 12
+
+
 /*-----------------------------------------------------------------------------
  * PointerEvent - mouse/pen move and/or button press.
  */
@@ -1428,6 +1444,16 @@ typedef struct {
     /* followed by char text[length] */
 } rfbClientCutTextMsg;
 
+#define rfbExtendedClipboard_Text 1
+#define rfbExtendedClipboard_RTF 2
+#define rfbExtendedClipboard_HTML 4
+#define rfbExtendedClipboard_DIB 8
+#define rfbExtendedClipboard_Files 16
+#define rfbExtendedClipboard_Caps (1 << 24)
+#define rfbExtendedClipboard_Request (1 << 25)
+#define rfbExtendedClipboard_Peek (1 << 26)
+#define rfbExtendedClipboard_Notify (1 << 27)
+#define rfbExtendedClipboard_Provide (1 << 28)
 #define sz_rfbClientCutTextMsg 8
 
 

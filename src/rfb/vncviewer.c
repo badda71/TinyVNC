@@ -48,7 +48,6 @@ static rfbBool DummyPoint(rfbClient* client, int x, int y) {
 static void DummyRect(rfbClient* client, int x, int y, int w, int h) {
 }
 
-
 static char* ReadPassword(rfbClient* client) {
 	int i;
 	char* p=calloc(1,9);
@@ -71,8 +70,10 @@ static char* ReadPassword(rfbClient* client) {
 static rfbBool MallocFrameBuffer(rfbClient* client) {
   uint64_t allocSize;
 
-  if(client->frameBuffer)
+  if(client->frameBuffer) {
     free(client->frameBuffer);
+    client->frameBuffer = NULL;
+  }
 
   /* SECURITY: promote 'width' into uint64_t so that the multiplication does not overflow
      'width' and 'height' are 16-bit integers per RFB protocol design
@@ -113,7 +114,7 @@ static void FillRectangle(rfbClient* client, int x, int y, int w, int h, uint32_
 
 #define FILL_RECT(BPP) \
     for(j=y*client->width;j<(y+h)*client->width;j+=client->width) \
-      for(i=x;i<x+w;i++)\
+      for(i=x;i<x+w;i++) \
 	((uint##BPP##_t*)client->frameBuffer)[j+i]=colour;
 
   switch(client->format.bitsPerPixel) {
@@ -521,6 +522,8 @@ void rfbClientCleanup(rfbClient* client) {
     free(client->clientData);
     client->clientData = next;
   }
+
+  free(client->vncRec);
 
   if (client->sock != RFB_INVALID_SOCKET)
     rfbCloseSocket(client->sock);

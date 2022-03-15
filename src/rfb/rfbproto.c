@@ -235,24 +235,42 @@ DefaultSupportedMessages(rfbClient* client)
     SetClient2Server(client, rfbKeyEvent);
     SetClient2Server(client, rfbPointerEvent);
     SetClient2Server(client, rfbClientCutText);
-	// used to be UltraVNC only
-    SetClient2Server(client, rfbFileTransfer);
-    SetClient2Server(client, rfbSetScale);
-    SetClient2Server(client, rfbSetServerInput);
-    SetClient2Server(client, rfbSetSW);
-    SetClient2Server(client, rfbTextChat);
-    SetClient2Server(client, rfbPalmVNCSetScaleFactor);
-
-	/* technically, we only care what we can *send* to the server
+    /* technically, we only care what we can *send* to the server
      * but, we set Server2Client Just in case it ever becomes useful
      */
     SetServer2Client(client, rfbFramebufferUpdate);
     SetServer2Client(client, rfbSetColourMapEntries);
     SetServer2Client(client, rfbBell);
     SetServer2Client(client, rfbServerCutText);
-	// used to be only for UltraVNC
+}
+
+void
+DefaultSupportedMessagesUltraVNC(rfbClient* client)
+{
+    DefaultSupportedMessages(client);
+    SetClient2Server(client, rfbFileTransfer);
+    SetClient2Server(client, rfbSetScale);
+    SetClient2Server(client, rfbSetServerInput);
+    SetClient2Server(client, rfbSetSW);
+    SetClient2Server(client, rfbTextChat);
+    SetClient2Server(client, rfbPalmVNCSetScaleFactor);
+    /* technically, we only care what we can *send* to the server */
     SetServer2Client(client, rfbResizeFrameBuffer);
     SetServer2Client(client, rfbPalmVNCReSizeFrameBuffer);
+    SetServer2Client(client, rfbFileTransfer);
+    SetServer2Client(client, rfbTextChat);
+}
+
+
+void
+DefaultSupportedMessagesTightVNC(rfbClient* client)
+{
+    DefaultSupportedMessages(client);
+    SetClient2Server(client, rfbFileTransfer);
+    SetClient2Server(client, rfbSetServerInput);
+    SetClient2Server(client, rfbSetSW);
+    /* SetClient2Server(client, rfbTextChat); */
+    /* technically, we only care what we can *send* to the server */
     SetServer2Client(client, rfbFileTransfer);
     SetServer2Client(client, rfbTextChat);
 }
@@ -489,7 +507,7 @@ ReadSupportedSecurityType(rfbClient* client, uint32_t *result, rfbBool subAuth)
 #ifdef LIBVNCSERVER_HAVE_SASL
             tAuth[loop]==rfbSASL ||
 #endif /* LIBVNCSERVER_HAVE_SASL */
-            (tAuth[loop]==rfbARD && client->GetCredential))
+            ((tAuth[loop]==rfbARD || tAuth[loop]==rfbUltraMSLogonII) && client->GetCredential))
         {
             if (!subAuth && client->clientAuthSchemes)
             {
@@ -660,6 +678,60 @@ rfbPowM64(uint64_t b, uint64_t e, uint64_t m)
     b=rfbMulM64(b,b,m);
   }
   return r;
+}
+
+static rfbBool
+HandleUltraMSLogonIIAuth(rfbClient *client)
+{
+  uint8_t gen[8], mod[8], resp[8], pub[8], priv[8];
+  uint8_t username[256], password[64], key[8];
+  rfbCredential *cred;
+
+  if (!ReadFromRFBServer(client, (char *)gen, sizeof(gen))) return FALSE;
+  if (!ReadFromRFBServer(client, (char *)mod, sizeof(mod))) return FALSE;
+  if (!ReadFromRFBServer(client, (char *)resp, sizeof(resp))) return FALSE;
+
+  if(!dh_generate_keypair(priv, pub, gen, sizeof(gen), mod, sizeof(priv))) {
+      rfbClientErr("HandleUltraMSLogonIIAuth: generating keypair failed\n");
+      return FALSE;
+  }
+
+  if(!dh_compute_shared_key(key, priv, resp, mod, sizeof(key))) {
+      rfbClientErr("HandleUltraMSLogonIIAuth: creating shared key failed\n");
+      return FALSE;
+  }
+
+  if (!client->GetCredential)
+  {
+    rfbClientLog("GetCredential callback is not set.\n");
+    return FALSE;
+  }
+  rfbClientLog("WARNING! MSLogon security type has very low password encryption! "\
+    "Use it only with SSH tunnel or trusted network.\n");
+  cred = client->GetCredential(client, rfbCredentialTypeUser);
+  if (!cred)
+  {
+    rfbClientLog("Reading credential failed\n");
+    return FALSE;
+  }
+
+  memset(username, 0, sizeof(username));
+  strncpy((char *)username, cred->userCredential.username, sizeof(username)-1);
+  memset(password, 0, sizeof(password));
+  strncpy((char *)password, cred->userCredential.password, sizeof(password)-1);
+  FreeUserCredential(cred);
+
+  rfbClientEncryptBytes2(username, sizeof(username), (unsigned char *)key);
+  rfbClientEncryptBytes2(password, sizeof(password), (unsigned char *)key);
+
+  if (!WriteToRFBServer(client, (char *)pub, sizeof(pub))) return FALSE;
+  if (!WriteToRFBServer(client, (char *)username, sizeof(username))) return FALSE;
+  if (!WriteToRFBServer(client, (char *)password, sizeof(password))) return FALSE;
+
+  /* Handle the SecurityResult message */
+  if (!rfbHandleAuthResult(client)) return FALSE;
+
+  return TRUE;
 }
 
 static rfbBool
@@ -911,6 +983,26 @@ InitialiseRFBConnection(rfbClient* client)
   if ((major==rfbProtocolMajorVersion) && (minor>rfbProtocolMinorVersion))
     client->minor = rfbProtocolMinorVersion;
 
+  /* UltraVNC uses minor codes 4 and 6 for the server */
+  if (major==3 && (minor==4 || minor==6)) {
+      rfbClientLog("UltraVNC server detected, enabling UltraVNC specific messages\n",pv);
+      DefaultSupportedMessagesUltraVNC(client);
+  }
+
+  /* UltraVNC Single Click uses minor codes 14 and 16 for the server */
+  if (major==3 && (minor==14 || minor==16)) {
+     minor = minor - 10;
+     client->minor = minor;
+     rfbClientLog("UltraVNC Single Click server detected, enabling UltraVNC specific messages\n",pv);
+     DefaultSupportedMessagesUltraVNC(client);
+  }
+
+  /* TightVNC uses minor codes 5 for the server */
+  if (major==3 && minor==5) {
+      rfbClientLog("TightVNC server detected, enabling TightVNC specific messages\n",pv);
+      DefaultSupportedMessagesTightVNC(client);
+  }
+
   /* we do not support > RFB3.8 */
   if ((major==3 && minor>8) || major>3)
   {
@@ -964,6 +1056,10 @@ InitialiseRFBConnection(rfbClient* client)
     if (!HandleSASLAuth(client)) return FALSE;
     break;
 #endif /* LIBVNCSERVER_HAVE_SASL */
+
+  case rfbUltraMSLogonII:
+    if (!HandleUltraMSLogonIIAuth(client)) return FALSE;
+    break;
 
   case rfbMSLogon:
     if (!HandleMSLogonAuth(client)) return FALSE;
@@ -1312,6 +1408,9 @@ SetFormatAndEncodings(rfbClient* client)
   if (se->nEncodings < MAX_ENCODINGS)
     encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingXvp);
 
+  if (se->nEncodings < MAX_ENCODINGS)
+    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingQemuExtendedKeyEvent);
+
   /* client extensions */
   for(e = rfbClientExtensions; e; e = e->next)
     if(e->encodings) {
@@ -1549,6 +1648,31 @@ SendKeyEvent(rfbClient* client, uint32_t key, rfbBool down)
 
 
 /*
+ * SendExtendedKeyEvent.
+ */
+
+rfbBool
+SendExtendedKeyEvent(rfbClient* client, uint32_t keysym, uint32_t keycode, rfbBool down)
+{
+  rfbQemuExtendedKeyEventMsg ke;
+
+  /* FIXME: rfbQemuEvent also covers audio events, but this model for checking
+   * for supported messages is somewhat limited, so I'll leave this as is for
+   * now.
+   */
+  if (!SupportsClient2Server(client, rfbQemuEvent)) return FALSE;
+
+  memset(&ke, 0, sizeof(ke));
+  ke.type = rfbQemuEvent;
+  ke.subtype = 0; /* key event subtype */
+  ke.down = rfbClientSwap16IfLE(!!down);
+  ke.keysym = rfbClientSwap32IfLE(keysym);
+  ke.keycode = rfbClientSwap32IfLE(keycode);
+  return WriteToRFBServer(client, (char *)&ke, sz_rfbQemuExtendedKeyEventMsg);
+}
+
+
+/*
  * SendClientCutText.
  */
 
@@ -1586,7 +1710,7 @@ HandleRFBServerMessage(rfbClient* client)
 
   case rfbSetColourMapEntries:
   {
-	/* TODO:
+    /* TODO:
     int i;
     uint16_t rgb[3];
     XColor xc;
@@ -1911,7 +2035,7 @@ HandleRFBServerMessage(rfbClient* client)
 
       case rfbEncodingTRLE:
 	  {
-		switch (client->format.bitsPerPixel) {
+        switch (client->format.bitsPerPixel) {
         case 8:
           if (!HandleTRLE8(client, rect.r.x, rect.r.y, rect.r.w, rect.r.h))
             return FALSE;
@@ -2034,6 +2158,10 @@ HandleRFBServerMessage(rfbClient* client)
      }
 
 #endif
+
+      case rfbEncodingQemuExtendedKeyEvent:
+        SetClient2Server(client, rfbQemuEvent);
+        break;
 
       default:
 	 {
