@@ -123,6 +123,8 @@ rfbClient* cl;
 rfbClient* cl2;
 static SDL_Surface *bgimg;
 SDL_Surface* sdl=NULL;
+SDL_Surface* sdl_big=NULL; // unscaled
+int scaling_factor_top = 1;
 static int sdl_pos_x, sdl_pos_y;
 static vnc_config config;
 static int have_scrollbars=0;
@@ -186,25 +188,52 @@ void log_err(const char *format, ...)
 static rfbBool resize(rfbClient* client) {
 	int width=client->width;
 	int height=client->height;
-	int depth=client->format.bitsPerPixel;
+	int depth=32;
 
+	if (sdl_big) {
+		SDL_FreeSurface(sdl_big);
+		sdl_big = NULL;
+	}
+	client->appData.scaleSetting = scaling_factor_top = 1;
 	if (client->width > 1024 || client->height > 1024) {
 		if (SupportsClient2Server(client, rfbSetScale) || SupportsClient2Server(client, rfbPalmVNCSetScaleFactor)) {
 			// set server side scaling
 			client->appData.scaleSetting = (MAX(client->width,client->height) + 1024) / 1024;
 			if (!SendScaleSetting(client, client->appData.scaleSetting))
+			{
+				rfbClientErr("%s: SendScaleSetting failed", __func__);
 				return FALSE;
+			}
 			if (!SendFramebufferUpdateRequest(client,
 				client->updateRect.x / client->appData.scaleSetting,
 				client->updateRect.y / client->appData.scaleSetting,
 				client->updateRect.w / client->appData.scaleSetting,
 				client->updateRect.h / client->appData.scaleSetting,
 				FALSE))
+			{
+				rfbClientErr("%s: SendFramebufferUpdateRequest failed", __func__);
 				return FALSE;
-			rfbClientLog("screen size >1024px, set server scale to 1/%d", client->appData.scaleSetting);
+			}
+			rfbClientLog("size >1024px, set server scale 1/%d", client->appData.scaleSetting);
 		} else {
-			rfbClientErr("resize: screen size >1024px!");
-			return FALSE;
+			// set client side scaling
+			scaling_factor_top = (MAX(client->width,client->height) + 1024) / 1024;
+			if ((sdl_big=
+				SDL_CreateRGBSurface(
+					SDL_SWSURFACE,
+					client->width,
+					client->height,
+					32,
+					sdl->format->Rmask,
+					sdl->format->Gmask,
+					sdl->format->Bmask,
+					sdl->format->Amask)) == NULL)
+			{
+				rfbClientErr("%s: SDL_CreateRGBSurface %s", __func__, SDL_GetError());
+				return FALSE;
+			}
+			SDL_FillRect(sdl_big,NULL, 0x00000000);
+			rfbClientLog("size >1024px, set client scale 1/%d", scaling_factor_top);
 		}
 	}
 	client->updateRect.x = client->updateRect.y = 0;
@@ -212,6 +241,8 @@ static rfbBool resize(rfbClient* client) {
 	client->updateRect.h = height;
 
 	/* (re)create the surface used as the client's framebuffer */
+	width = width / scaling_factor_top;
+	height = height / scaling_factor_top;
 	int flags = SDL_TOPSCR;
 	if (config.scaling) {
 		SDL_ResetVideoPosition();
@@ -240,8 +271,8 @@ static rfbBool resize(rfbClient* client) {
 	SDL_FillRect(sdl,NULL, 0x00000000);
 	SDL_Flip(sdl);
 
-	client->width = sdl->pitch / (depth / 8);
-	client->frameBuffer=sdl->pixels;
+	client->width = (sdl_big?sdl_big:sdl)->pitch / (depth / 8);
+	client->frameBuffer=(sdl_big?sdl_big:sdl)->pixels;
 
 	client->format.bitsPerPixel=depth;
 	client->format.redShift=sdl->format->Rshift;
@@ -259,13 +290,17 @@ static rfbBool resize(rfbClient* client) {
 
 static void cleanup()
 {
-  if(cl)
-    rfbClientCleanup(cl);
-  cl = NULL;
-  if (cl2)
-    rfbClientCleanup(cl2);
-  cl2 = NULL;
-  uibvnc_cleanup();
+	if(cl)
+		rfbClientCleanup(cl);
+	cl = NULL;
+	if (cl2)
+		rfbClientCleanup(cl2);
+	cl2 = NULL;
+	if (sdl_big)
+		SDL_FreeSurface(sdl_big);
+	sdl_big = NULL;
+
+	uibvnc_cleanup();
 }
 
 enum buttons {
@@ -489,7 +524,7 @@ extern int uibvnc_w, uibvnc_h, uibvnc_x, uibvnc_y;
 static rfbBool handleSDLEvent(SDL_Event *e)
 {
 	// pointer positions
-	static double xf=0.0,yf=0.0;
+	static float xf=0.0,yf=0.0;
 	static int meta = 0;
 	
 	int s;
@@ -511,31 +546,31 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 			int y1=(e->type == SDL_MOUSEMOTION ? e->motion.y : e->button.y) * 240 / sdl->h;
 			x = ((x1 - uibvnc_x) * tcl->updateRect.w) / uibvnc_w;
 			y = ((y1 - uibvnc_y) * tcl->updateRect.h) / uibvnc_h;
-			xf=(double)x;
-			yf=(double)y;
+			xf=(float)x;
+			yf=(float)y;
 
 			// handle bottom screen scrolling - only if we are not scaling of course
 			if (!config.scaling2) {
 				static int scrolling = 0;
-				static double xposf, yposf;
+				static float xposf, yposf;
 
-				double dxf=0.0, dyf=0.0;
+				float dxf=0.0, dyf=0.0;
 				if (uibvnc_w > 320) {
 					if (x1 >= 320 - SCROLL_SIZE && uibvnc_x > 320-uibvnc_w)
-						dxf = -(double)(((x1 - 319 + SCROLL_SIZE) * SCROLL_SPEED) / SCROLL_SIZE) / 50.0;
+						dxf = -(float)(((x1 - 319 + SCROLL_SIZE) * SCROLL_SPEED) / SCROLL_SIZE) / 50.0;
 					if (x1 < SCROLL_SIZE && uibvnc_x < 0)
-						dxf = (double)(((-x1 + SCROLL_SIZE) * SCROLL_SPEED) / SCROLL_SIZE) / 50.0;
+						dxf = (float)(((-x1 + SCROLL_SIZE) * SCROLL_SPEED) / SCROLL_SIZE) / 50.0;
 				}
 				if (uibvnc_h > 240) {
 					if (y1 >= 240 - SCROLL_SIZE && uibvnc_y > 240-uibvnc_h)
-						dyf = -(double)(((y1 - 239 + SCROLL_SIZE) * SCROLL_SPEED) / SCROLL_SIZE) / 50.0;
+						dyf = -(float)(((y1 - 239 + SCROLL_SIZE) * SCROLL_SPEED) / SCROLL_SIZE) / 50.0;
 					if (y1 < SCROLL_SIZE && uibvnc_y < 0)
-						dyf = (double)(((-y1 + SCROLL_SIZE) * SCROLL_SPEED) / SCROLL_SIZE) / 50.0;
+						dyf = (float)(((-y1 + SCROLL_SIZE) * SCROLL_SPEED) / SCROLL_SIZE) / 50.0;
 				}
 				if (dxf != 0.0 || dyf != 0.0) {
 					if (scrolling == 0) {
-						xposf = (double)uibvnc_x;
-						yposf = (double)uibvnc_y;
+						xposf = (float)uibvnc_x;
+						yposf = (float)uibvnc_y;
 						if (e->type == SDL_MOUSEBUTTONDOWN || (e->type == SDL_MOUSEMOTION && e->motion.which != 2))
 							scrolling = 1;
 					}
@@ -575,24 +610,24 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 
 		if (e->type == SDL_MOUSEMOTION) {
 			if (tcl == cl) {
-				double xrel = (double)e->motion.xrel * (config.scaling?1.0:(400.0 / (double)sdl->w));
-				double yrel = (double)e->motion.yrel * (config.scaling?1.0:(240.0 / (double)sdl->h));
+				float xrel = (float)e->motion.xrel * (config.scaling?1.0:(400.0 / (float)sdl->w)) * scaling_factor_top;
+				float yrel = (float)e->motion.yrel * (config.scaling?1.0:(240.0 / (float)sdl->h)) * scaling_factor_top;
 				xf += xrel;
 				if (xf < 0.0) xf=0.0;
-				if (xf > (double)tcl->updateRect.w) xf=(double)tcl->updateRect.w;
+				if (xf > (float)tcl->updateRect.w) xf=(float)tcl->updateRect.w;
 				yf += yrel;
 				if (yf < 0.0) yf=0.0;
-				if (yf > (double)tcl->updateRect.h) yf = (double)tcl->updateRect.h;
+				if (yf > (float)tcl->updateRect.h) yf = (float)tcl->updateRect.h;
 				x=(int)xf; y=(int)yf;
 
 				// if not scaling and pointer is outside display area, scroll the display
 				if (!config.scaling) {
 					int w = have_scrollbars & 2 ? 398 : 400;
 					int h = have_scrollbars & 1 ? 238 : 240;
-					if (x < -sdl_pos_x)		sdl_pos_x = -x;
-					if (x > -sdl_pos_x + w)	sdl_pos_x = -x + w;
-					if (y < -sdl_pos_y)		sdl_pos_y = -y;
-					if (y > -sdl_pos_y + h)	sdl_pos_y = -y + h;
+					if (x / scaling_factor_top < -sdl_pos_x)		sdl_pos_x = -x / scaling_factor_top;
+					if (x / scaling_factor_top > -sdl_pos_x + w)	sdl_pos_x = -x / scaling_factor_top + w;
+					if (y / scaling_factor_top < -sdl_pos_y)		sdl_pos_y = -y / scaling_factor_top;
+					if (y / scaling_factor_top > -sdl_pos_y + h)	sdl_pos_y = -y / scaling_factor_top + h;
 					SDL_SetVideoPosition(sdl_pos_x, sdl_pos_y);
 					uib_show_scrollbars(sdl_pos_x, sdl_pos_y, 0, 0);
 				}
@@ -1190,7 +1225,8 @@ static int editconfig(vnc_config *c) {
 						swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
 						button = swkbdInputText(&swkbd, input, sizeof(input));
 						if(button != SWKBD_BUTTON_LEFT) {
-							snprintf(nc.audiopath, sizeof(nc.audiopath), "%s%s", input[0]=='/'?"":"/", input);
+							volatile int dst_size = sizeof(nc.audiopath); // get rid of compiler warning
+							snprintf(nc.audiopath, dst_size, "%s%s", input[0]=='/'?"":"/", input);
 						}
 						break;
 					case EDITCONF_HIDELOG: // hide log from bottom screen
@@ -1637,6 +1673,8 @@ int main() {
 			if (taphandling)
 				// must be called once per frame to expire mouse button presses
 				uib_handle_tap_processing(NULL);
+			if (sdl_big)
+				fastscale(sdl->pixels, sdl->pitch, sdl_big->pixels, sdl_big->w, sdl_big->h, sdl_big->pitch, scaling_factor_top);
 			SDL_Flip(sdl);
 			checkKeyRepeat();
 			while (SDL_PollEvent(&e)) {

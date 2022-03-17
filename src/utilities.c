@@ -5,7 +5,7 @@
 #include <string.h>
 #include "utilities.h"
 
-int fastscale(unsigned char *d, int dst_pitch, unsigned char *s, int src_width, int src_height, int src_pitch, int factor)
+int fastscale(unsigned char *dst, int dst_pitch, unsigned char *src, int src_width, int src_height, int src_pitch, int factor)
 {
 	if (factor < 2) return -1;
 
@@ -29,21 +29,21 @@ int fastscale(unsigned char *d, int dst_pitch, unsigned char *s, int src_width, 
 			temp_r = temp_g = temp_b = 0;
 			DUFFS_LOOP ({
 				DUFFS_LOOP ({
-					s++; // alpha
-					temp_r += *(s++);
-					temp_g += *(s++);
-					temp_b += *(s++);
+					src++; // alpha
+					temp_r += *(src++);
+					temp_g += *(src++);
+					temp_b += *(src++);
 				}, factor);
-				s += src_skip1;
+				src += src_skip1;
 			}, factor);
-			*(d++) = 0; // alpha
-			*(d++) = temp_r / factor_pow2;
-			*(d++) = temp_g / factor_pow2;
-			*(d++) = temp_b / factor_pow2;
-			s += src_skip2;
+			*(dst++) = 0; // alpha
+			*(dst++) = temp_r / factor_pow2;
+			*(dst++) = temp_g / factor_pow2;
+			*(dst++) = temp_b / factor_pow2;
+			src += src_skip2;
 		}
-		d += dst_skip;
-		s += src_skip3;
+		dst += dst_skip;
+		src += src_skip3;
 	}
 	return 0;
 }
