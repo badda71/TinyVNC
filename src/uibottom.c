@@ -166,22 +166,6 @@ static int uibvnc_scaling=1;
 // static functions
 // ================
 
-/* 8-times unrolled loop */
-#define DUFFS_LOOP(pixel_copy_increment, width)			\
-{ int n = (width+7)/8;							\
-	switch (width & 7) {						\
-	case 0: do {	pixel_copy_increment;				\
-	case 7:		pixel_copy_increment;				\
-	case 6:		pixel_copy_increment;				\
-	case 5:		pixel_copy_increment;				\
-	case 4:		pixel_copy_increment;				\
-	case 3:		pixel_copy_increment;				\
-	case 2:		pixel_copy_increment;				\
-	case 1:		pixel_copy_increment;				\
-		} while ( --n > 0 );					\
-	}								\
-}
-
 static void bufferSetMask(u8* buffer, int width, int height, int pitch)
 {
 	int skip = (pitch - width) * 4;

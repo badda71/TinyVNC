@@ -19,22 +19,6 @@
 #define COL_GRAY (SDL_Color){0x80, 0x80, 0x80, 0xff}
 #define COL_MAKE(x,y,z) (SDL_Color){x, y, z, 0xff}
 
-#define MIN(a,b) \
-	({ __typeof__ (a) _a = (a); \
-		__typeof__ (b) _b = (b); \
-		_a < _b ? _a : _b; })
-
-#define MAX(a,b) \
-	({ __typeof__ (a) _a = (a); \
-		__typeof__ (b) _b = (b); \
-		_a > _b ? _a : _b; })
-
-#define LIMIT(a,l1,l2) \
-	({ __typeof__ (a) _a = (a); \
-		__typeof__ (l1) _l1 = (l1); \
-		__typeof__ (l2) _l2 = (l2); \
-		_a < _l1 ? _l1 : (_a > _l2 ? _l2 : _a); })
-
 // exposed definitions
 typedef enum {
 	UIB_NO = 0,
