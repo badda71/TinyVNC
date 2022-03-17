@@ -681,16 +681,25 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 				config.scaling = !config.scaling;
 				if (cl) {
 					resize(cl);
-					SendFramebufferUpdateRequest(cl, 0, 0, cl->width, cl->height, FALSE);
+					SendFramebufferUpdateRequest(cl, 0, 0, cl->updateRect.w, cl->updateRect.h, FALSE);
 				}
 			}
 			break;
-		} else if (s == 5) {		// toggle bottom screen backlight
+		} else if (s == 5) {		// toggle bottom screen scaling
+			if (e->type == SDL_KEYDOWN) {
+				config.scaling2 = !config.scaling2;
+				if (cl2) {
+					uibvnc_resize(cl2);
+					SendFramebufferUpdateRequest(cl2, 0, 0, cl2->updateRect.w, cl2->updateRect.h, FALSE);
+				}
+			}
+			break;
+		} else if (s == 6) {		// toggle bottom screen backlight
 			if (e->type == SDL_KEYDOWN) {
 				uib_setBacklight(!uib_getBacklight());
 			}
 			break;
-		} else if (s == 6) {		// toggle touch event target
+		} else if (s == 7) {		// toggle touch event target
 			if (cl2 && cl && e->type == SDL_KEYDOWN) {
 				config.eventtarget = !config.eventtarget;
 				if (cl->appData.useRemoteCursor != config.eventtarget) {
@@ -1510,9 +1519,10 @@ static void readkeymaps(char *cname) {
 				"# 1 = meta button\n"
 				"# 2 = toggle keyboard\n"
 				"# 3 = disconnect\n"
-				"# 4 = toggle topscreen scaling\n"
-				"# 5 = toggle bottom screen backlight\n"
-				"# 6 = toggle touch/button events target (top or bottom)\n"
+				"# 4 = toggle top screen scaling\n"
+				"# 5 = toggle bottom screen scaling\n"
+				"# 6 = toggle bottom screen backlight\n"
+				"# 7 = toggle touch/button events target (top or bottom)\n"
 				"# 16-20 = mouse button 1-5 (16=left, 17=middle, 18=right, 19=wheelup, 20=wheeldown)\n\n"
 			);
 			for (i=1; buttons3ds[i].name != NULL; ++i) {
