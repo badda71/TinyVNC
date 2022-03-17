@@ -185,6 +185,26 @@ void log_err(const char *format, ...)
     va_end(argptr);
 }
 
+void handleFrameBufferUpdateTop (struct _rfbClient *client, int x, int y, int w, int h)
+{
+	if (sdl_big) {
+		int xa = x / scaling_factor_top;
+		int ya = y / scaling_factor_top;
+		int wa = (w + scaling_factor_top - 1) / scaling_factor_top;
+		int ha = (h + scaling_factor_top - 1) / scaling_factor_top;
+		if (xa + wa > sdl->w) wa = sdl->w - xa;
+		if (ya + ha > sdl->h) ha = sdl->h - ya;
+		fastscale(
+			sdl->pixels + xa * 4 + ya * sdl->pitch,
+			sdl->pitch,
+			sdl_big->pixels + xa * scaling_factor_top * 4 + ya * scaling_factor_top * sdl_big->pitch,
+			wa * scaling_factor_top,
+			ha * scaling_factor_top,
+			sdl_big->pitch,
+			scaling_factor_top);
+	}
+}
+
 static rfbBool resize(rfbClient* client) {
 	int width=client->width;
 	int height=client->height;
@@ -195,6 +215,7 @@ static rfbBool resize(rfbClient* client) {
 		sdl_big = NULL;
 	}
 	client->appData.scaleSetting = scaling_factor_top = 1;
+	client->GotFrameBufferUpdate = NULL;
 	if (client->width > 1024 || client->height > 1024) {
 		if (SupportsClient2Server(client, rfbSetScale) || SupportsClient2Server(client, rfbPalmVNCSetScaleFactor)) {
 			// set server side scaling
@@ -202,16 +223,6 @@ static rfbBool resize(rfbClient* client) {
 			if (!SendScaleSetting(client, client->appData.scaleSetting))
 			{
 				rfbClientErr("%s: SendScaleSetting failed", __func__);
-				return FALSE;
-			}
-			if (!SendFramebufferUpdateRequest(client,
-				client->updateRect.x / client->appData.scaleSetting,
-				client->updateRect.y / client->appData.scaleSetting,
-				client->updateRect.w / client->appData.scaleSetting,
-				client->updateRect.h / client->appData.scaleSetting,
-				FALSE))
-			{
-				rfbClientErr("%s: SendFramebufferUpdateRequest failed", __func__);
 				return FALSE;
 			}
 			rfbClientLog("size >1024px, set server scale 1/%d", client->appData.scaleSetting);
@@ -233,7 +244,18 @@ static rfbBool resize(rfbClient* client) {
 				return FALSE;
 			}
 			SDL_FillRect(sdl_big,NULL, 0x00000000);
+			client->GotFrameBufferUpdate = handleFrameBufferUpdateTop;
 			rfbClientLog("size >1024px, set client scale 1/%d", scaling_factor_top);
+		}
+		if (!SendFramebufferUpdateRequest(client,
+			client->updateRect.x / client->appData.scaleSetting,
+			client->updateRect.y / client->appData.scaleSetting,
+			client->updateRect.w / client->appData.scaleSetting,
+			client->updateRect.h / client->appData.scaleSetting,
+			FALSE))
+		{
+			rfbClientErr("%s: SendFramebufferUpdateRequest failed", __func__);
+			return FALSE;
 		}
 	}
 	client->updateRect.x = client->updateRect.y = 0;
@@ -1673,8 +1695,6 @@ int main() {
 			if (taphandling)
 				// must be called once per frame to expire mouse button presses
 				uib_handle_tap_processing(NULL);
-			if (sdl_big)
-				fastscale(sdl->pixels, sdl->pitch, sdl_big->pixels, sdl_big->w, sdl_big->h, sdl_big->pitch, scaling_factor_top);
 			SDL_Flip(sdl);
 			checkKeyRepeat();
 			while (SDL_PollEvent(&e)) {
