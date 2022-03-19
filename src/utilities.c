@@ -36,7 +36,7 @@ int fastscale(unsigned char *dst, int dst_pitch, unsigned char *src, int src_wid
 				}, factor);
 				src += src_skip1;
 			}, factor);
-			*(dst++) = 0; // alpha
+			*(dst++) = 255; // alpha
 			*(dst++) = temp_r / factor_pow2;
 			*(dst++) = temp_g / factor_pow2;
 			*(dst++) = temp_b / factor_pow2;

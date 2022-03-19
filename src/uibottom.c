@@ -12,6 +12,7 @@
 #include <3ds.h>
 #include <citro3d.h>
 #include <rfb/rfbclient.h>
+#include <errno.h>
 #include "uibottom.h"
 #include "utilities.h"
 
@@ -145,8 +146,18 @@ static DS3_Image uibvnc_spr;
 SDL_Surface *menu_img=NULL;
 SDL_Surface *chars_img=NULL;
 
+// globals
+int uibvnc_w=320;
+int uibvnc_h=240;
+int uibvnc_x=0;
+int uibvnc_y=0;
+
 // static variables
 static u8* uibvnc_buffer = NULL;
+static int uibvnc_pitch = 0;
+static u8* uibvnc_buffer_big = NULL;
+static int scaling_factor_bot=1;
+
 static Handle repaintRequired;
 static int uib_isinit=0;
 static int kb_y_pos = 0;
@@ -161,25 +172,6 @@ static int top_scrollbars = 0;
 static int sb_pos_hx, sb_pos_hw, sb_pos_vy, sb_pos_vh;
 static int bottom_lcd_on=1;
 static int uibvnc_scaling=1;
-
-
-// static functions
-// ================
-
-static void bufferSetMask(u8* buffer, int width, int height, int pitch)
-{
-	int skip = (pitch - width) * 4;
-
-	while ( height-- ) {
-		DUFFS_LOOP(
-		{
-			*buffer = 0xFF;
-			buffer+=4;
-		},
-		width);
-		buffer += skip;
-	}
-}
 
 // sprite handling funtions
 extern C3D_RenderTarget* VideoSurface2;
@@ -429,11 +421,6 @@ static int loadImage(DS3_Image *img, char *fname) {
 static inline void requestRepaint() {
 	svcSignalEvent(repaintRequired);
 }
-
-int uibvnc_w=320;
-int uibvnc_h=240;
-int uibvnc_x=0;
-int uibvnc_y=0;
 
 static void uib_repaint(void *param) {
 	ENTER
@@ -823,7 +810,6 @@ void uib_update(int what)
 			makeImage(&menu_spr, menu_img->pixels, menu_img->w, menu_img->h, 1);
 		}
 		if (uib_must_redraw & UIB_RECALC_VNC) {
-			bufferSetMask(uibvnc_buffer, uibvnc_spr.w, uibvnc_spr.h, mynext_pow2(uibvnc_spr.w));
 			makeImage(&uibvnc_spr, uibvnc_buffer, uibvnc_spr.w, uibvnc_spr.h, 1);
 		}
 		uib_must_redraw = UIB_NO;
@@ -1187,55 +1173,107 @@ void uibvnc_cleanup() {
 		linearFree(uibvnc_buffer);
 		uibvnc_buffer=NULL;
 	}
+	if (uibvnc_buffer_big) {
+		free(uibvnc_buffer_big);
+		uibvnc_buffer_big=NULL;
+	}
+}
+
+static void uibvnc_handleFrameBufferUpdate_mask (struct _rfbClient *client, int x, int y, int w, int h)
+{
+	int skip = uibvnc_pitch - w * 4;
+	u8* buffer = uibvnc_buffer + y * uibvnc_pitch + x * 4;
+	DUFFS_LOOP ({
+		DUFFS_LOOP({
+			*buffer = 0xFF;
+			buffer+=4;
+		}, w);
+		buffer += skip;
+	}, h);
+}
+
+static void uibvnc_handleFrameBufferUpdate_scale (struct _rfbClient *client, int x, int y, int w, int h)
+{
+	if (uibvnc_buffer_big) {
+		int xa = x / scaling_factor_bot;
+		int ya = y / scaling_factor_bot;
+		int wa = (w + scaling_factor_bot - 1) / scaling_factor_bot;
+		int ha = (h + scaling_factor_bot - 1) / scaling_factor_bot;
+		if (xa + wa > client->updateRect.w) wa = client->updateRect.w - xa;
+		if (ya + ha > client->updateRect.w) ha = client->updateRect.w - ya;
+		fastscale(
+			uibvnc_buffer + xa * 4 + ya * uibvnc_pitch,
+			uibvnc_pitch,
+			uibvnc_buffer_big + xa * scaling_factor_bot * 4 + ya * scaling_factor_bot * client->updateRect.w * 4,
+			wa * scaling_factor_bot,
+			ha * scaling_factor_bot,
+			client->updateRect.w * 4,
+			scaling_factor_bot);
+	}
 }
 
 rfbBool uibvnc_resize(rfbClient* client) {
 
 //log_citra("enter %s, %p, %d, %d",__func__, client, client->width, client->height);
+	uibvnc_cleanup();
+
+	client->appData.scaleSetting = scaling_factor_bot = 1;
+	client->GotFrameBufferUpdate = uibvnc_handleFrameBufferUpdate_mask;
 	if (client->width > 1024 || client->height > 1024) {
 		if (SupportsClient2Server(client, rfbSetScale) || SupportsClient2Server(client, rfbPalmVNCSetScaleFactor)) {
 			// set server side scaling
 			client->appData.scaleSetting = (MAX(client->width,client->height) + 1024) / 1024;
 			if (!SendScaleSetting(client, client->appData.scaleSetting))
+			{
+				rfbClientErr("%s: SendScaleSetting failed", __func__);
 				return FALSE;
-			if (!SendFramebufferUpdateRequest(client,
-				client->updateRect.x / client->appData.scaleSetting,
-				client->updateRect.y / client->appData.scaleSetting,
-				client->updateRect.w / client->appData.scaleSetting,
-				client->updateRect.h / client->appData.scaleSetting,
-				FALSE))
-				return FALSE;
-			rfbClientLog("bottom screen size >1024px, set server scale to 1/%d", client->appData.scaleSetting);
+			}
+			rfbClientLog("bot size >1024px, set server scale 1/%d", client->appData.scaleSetting);
 		} else {
-			rfbClientErr("bottom resize: screen size >1024px!");
+			// set client side scaling
+			scaling_factor_bot = (MAX(client->width,client->height) + 1024) / 1024;
+			if ((uibvnc_buffer_big = calloc(client->width*client->height,4)) == NULL)
+			{
+				rfbClientErr("%s: calloc %s", __func__, strerror(errno));
+				return FALSE;
+			}
+			client->GotFrameBufferUpdate = uibvnc_handleFrameBufferUpdate_scale;
+			rfbClientLog("bot size >1024px, set client scale 1/%d", scaling_factor_bot);
+		}
+		if (!SendFramebufferUpdateRequest(client,
+			client->updateRect.x / client->appData.scaleSetting,
+			client->updateRect.y / client->appData.scaleSetting,
+			client->updateRect.w / client->appData.scaleSetting,
+			client->updateRect.h / client->appData.scaleSetting,
+			FALSE))
+		{
+			rfbClientErr("%s: SendFramebufferUpdateRequest failed", __func__);
 			return FALSE;
 		}
 	}
-
-	uibvnc_spr.w=client->width;
-	uibvnc_spr.h=client->height;
-
 	client->updateRect.x = client->updateRect.y = 0;
-	client->updateRect.w = uibvnc_spr.w;
-	client->updateRect.h = uibvnc_spr.h;
+	client->updateRect.w = client->width;
+	client->updateRect.h = client->height;
 
 	/* (re)create the buffer used as the client's framebuffer */
-	uibvnc_cleanup();
-
+	uibvnc_spr.w = client->width / scaling_factor_bot;
+	uibvnc_spr.h = client->height / scaling_factor_bot;
+	
 	unsigned hw=mynext_pow2(uibvnc_spr.w);
 	unsigned hh=mynext_pow2(uibvnc_spr.h);
+	uibvnc_pitch = hw * 4;
 
 	// alloc buffer in linear RAM, ABGR pixel format, pow2-dimensions
 	uibvnc_buffer = (u8*)linearAlloc(hh*hw*4);
 	if(!uibvnc_buffer) {
-		rfbClientErr("bottom resize: alloc failed");
+		rfbClientErr("%s: alloc failed", __func__);
 		return FALSE;
 	}
 	memset(uibvnc_buffer, 255, hh*hw*4);
 	uib_update(UIB_RECALC_VNC);
 
-	client->width = hw;
-	client->frameBuffer=uibvnc_buffer;
+	client->width = uibvnc_buffer_big?client->updateRect.w:hw;
+	client->frameBuffer=uibvnc_buffer_big?uibvnc_buffer_big:uibvnc_buffer;
 
 	client->format.bitsPerPixel=32;
 	client->format.redShift=24;
@@ -1246,9 +1284,12 @@ rfbBool uibvnc_resize(rfbClient* client) {
 	SetFormatAndEncodings(client);
 
 	if (uibvnc_scaling) {
-		int scale1024 = MIN (1024, MIN(320*1024 / uibvnc_spr.w, 240*1024 / uibvnc_spr.h)); // no upscaling (scale max 1024)
-		uibvnc_w = uibvnc_spr.w * scale1024 / 1024;
-		uibvnc_h = uibvnc_spr.h * scale1024 / 1024;
+		int scale1024 = (uibvnc_spr.w) * 1024 / uibvnc_spr.h;
+		if (scale1024 < (320 * 1024) / 240) {
+			uibvnc_h = MIN(240, uibvnc_spr.h) ; uibvnc_w = (scale1024 * uibvnc_h + 512) / 1024;
+		} else {
+			uibvnc_w = MIN(320, uibvnc_spr.w); uibvnc_h = (uibvnc_w * 1024 + scale1024 / 2) / scale1024;
+		}
 		uibvnc_x = (320 - uibvnc_w) / 2;
 		uibvnc_y = (240 - uibvnc_h) / 2;
 	} else {

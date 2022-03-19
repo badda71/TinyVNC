@@ -185,7 +185,7 @@ void log_err(const char *format, ...)
     va_end(argptr);
 }
 
-void handleFrameBufferUpdateTop (struct _rfbClient *client, int x, int y, int w, int h)
+static void handleFrameBufferUpdateTop (struct _rfbClient *client, int x, int y, int w, int h)
 {
 	if (sdl_big) {
 		int xa = x / scaling_factor_top;
@@ -209,17 +209,19 @@ static rfbBool resize(rfbClient* client) {
 	int width=client->width;
 	int height=client->height;
 	int depth=32;
+	static void *oldGotFrameBufferUpdate=NULL;
 
 	if (sdl_big) {
 		SDL_FreeSurface(sdl_big);
 		sdl_big = NULL;
 	}
 	client->appData.scaleSetting = scaling_factor_top = 1;
-	client->GotFrameBufferUpdate = NULL;
-	if (client->width > 1024 || client->height > 1024) {
+	if (oldGotFrameBufferUpdate)
+		client->GotFrameBufferUpdate = oldGotFrameBufferUpdate;
+	if (width > 1024 || height > 1024) {
 		if (SupportsClient2Server(client, rfbSetScale) || SupportsClient2Server(client, rfbPalmVNCSetScaleFactor)) {
 			// set server side scaling
-			client->appData.scaleSetting = (MAX(client->width,client->height) + 1024) / 1024;
+			client->appData.scaleSetting = (MAX(width, height) + 1024) / 1024;
 			if (!SendScaleSetting(client, client->appData.scaleSetting))
 			{
 				rfbClientErr("%s: SendScaleSetting failed", __func__);
@@ -228,12 +230,12 @@ static rfbBool resize(rfbClient* client) {
 			rfbClientLog("size >1024px, set server scale 1/%d", client->appData.scaleSetting);
 		} else {
 			// set client side scaling
-			scaling_factor_top = (MAX(client->width,client->height) + 1024) / 1024;
+			scaling_factor_top = (MAX(width,height) + 1024) / 1024;
 			if ((sdl_big=
 				SDL_CreateRGBSurface(
 					SDL_SWSURFACE,
-					client->width,
-					client->height,
+					width,
+					height,
 					32,
 					sdl->format->Rmask,
 					sdl->format->Gmask,
@@ -244,7 +246,10 @@ static rfbBool resize(rfbClient* client) {
 				return FALSE;
 			}
 			SDL_FillRect(sdl_big,NULL, 0x00000000);
-			client->GotFrameBufferUpdate = handleFrameBufferUpdateTop;
+			if (client->GotFrameBufferUpdate != handleFrameBufferUpdateTop) {
+				oldGotFrameBufferUpdate = client->GotFrameBufferUpdate;
+				client->GotFrameBufferUpdate = handleFrameBufferUpdateTop;
+			}
 			rfbClientLog("size >1024px, set client scale 1/%d", scaling_factor_top);
 		}
 		if (!SendFramebufferUpdateRequest(client,
