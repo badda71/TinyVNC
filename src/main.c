@@ -416,7 +416,7 @@ static struct {
 	{"CSTCK_RIGHT",			BUT_CSRIGHT,	XK_l	},
 	{"A_META",				BUT_A_M,		XK_A	},
 	{"B_META",				BUT_B_M,		XK_B	},
-	{"X_META",				BUT_X_M,		6		},	// toggle touch event target
+	{"X_META",				BUT_X_M,		7		},	// toggle touch event target
 	{"Y_META",				BUT_Y_M,		XK_Y	},
 	{"SELECT_META",			BUT_SELECT_M,	1		},	// meta
 	{"START_META",			BUT_START_M,	3		},	// disconnect
@@ -684,6 +684,7 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 		} else if (s == 4) {		// toggle top screen scaling
 			if (e->type == SDL_KEYDOWN) {
 				config.scaling = !config.scaling;
+				uib_show_message(3000,"Top screen scaling %s",config.scaling?"on":"off");
 				if (cl) {
 					resize(cl);
 					SendFramebufferUpdateRequest(cl, 0, 0, cl->updateRect.w, cl->updateRect.h, FALSE);
@@ -693,6 +694,7 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 		} else if (s == 5) {		// toggle bottom screen scaling
 			if (e->type == SDL_KEYDOWN) {
 				config.scaling2 = !config.scaling2;
+				uib_show_message(3000,"Bottom screen scaling %s",config.scaling2?"on":"off");
 				if (cl2) {
 					uibvnc_resize(cl2);
 					SendFramebufferUpdateRequest(cl2, 0, 0, cl2->updateRect.w, cl2->updateRect.h, FALSE);
@@ -701,12 +703,15 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 			break;
 		} else if (s == 6) {		// toggle bottom screen backlight
 			if (e->type == SDL_KEYDOWN) {
-				uib_setBacklight(!uib_getBacklight());
+				int i=uib_getBacklight();
+				uib_setBacklight(!i);
+				uib_show_message(3000,"Bottom screen backlight %s",i?"off":"on");
 			}
 			break;
 		} else if (s == 7) {		// toggle touch event target
 			if (cl2 && cl && e->type == SDL_KEYDOWN) {
 				config.eventtarget = !config.eventtarget;
+				uib_show_message(3000,"Event target = %s",config.eventtarget?"botton":"top");
 				if (cl->appData.useRemoteCursor != config.eventtarget) {
 					cl->appData.useRemoteCursor = config.eventtarget;
 					SetFormatAndEncodings(cl);

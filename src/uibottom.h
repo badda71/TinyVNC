@@ -48,6 +48,7 @@ extern void checkKeyRepeat();
 
 extern void uib_printtext(SDL_Surface *s, const char *str, int xo, int yo, int w, int h, SDL_Color tcol, SDL_Color bcol);
 extern void uib_printstring(SDL_Surface *s, const char *str, int x, int y, int maxchars, str_alignment align, SDL_Color tcol, SDL_Color bcol);
+extern void uib_show_message(u32 ms_time, char *format, ... );
 extern int uib_printf(char *format, ...);
 extern int uib_vprintf(char *format, va_list arg);
 extern void uib_set_position(int x, int y);

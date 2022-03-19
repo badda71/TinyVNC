@@ -137,6 +137,7 @@ static DS3_Image twistydn_spr;
 static DS3_Image keymask_spr;
 
 // dynamic sprites
+static DS3_Image message_spr;
 static DS3_Image menu_spr;
 static DS3_Image whitepixel_spr;
 static DS3_Image blackpixel_spr;
@@ -145,6 +146,7 @@ static DS3_Image uibvnc_spr;
 // SDL Surfaces
 SDL_Surface *menu_img=NULL;
 SDL_Surface *chars_img=NULL;
+static SDL_Surface *message_img=NULL;
 
 // globals
 int uibvnc_w=320;
@@ -172,6 +174,7 @@ static int top_scrollbars = 0;
 static int sb_pos_hx, sb_pos_hw, sb_pos_vy, sb_pos_vh;
 static int bottom_lcd_on=1;
 static int uibvnc_scaling=1;
+static u32 messagetime=0;
 
 // sprite handling funtions
 extern C3D_RenderTarget* VideoSurface2;
@@ -433,6 +436,14 @@ static void uib_repaint(void *param) {
 		if (top_scrollbars & 2) drawImage(&whitepixel_spr, 320-SCROLLBAR_WIDTH, sb_pos_vy, SCROLLBAR_WIDTH, sb_pos_vh, 0);
 	}
 
+	// paint message
+	if (messagetime) {
+		if (SDL_GetTicks() < messagetime)
+			drawImage(&message_spr,0,228,320,12,0);
+		else
+			messagetime = 0;
+	}
+
 	if (svcWaitSynchronization(repaintRequired, 0)) return;
 	svcClearEvent(repaintRequired);
 
@@ -682,6 +693,22 @@ void uib_printstring(SDL_Surface *s, const char *str, int x, int y, int maxchars
 	SDL_SetPalette(chars_img, SDL_LOGPAL, &COL_BLACK, 0, 1);
 }
 
+void uib_show_message(u32 ms_time, char *format, ... ) {
+	char buffer[80];
+	if (format != NULL && *format!=0) {
+        SDL_FillRect(message_img, NULL, SDL_MapRGBA(message_img->format,0,0,0,128));
+        va_list args;
+        va_start (args, format);
+        vsnprintf (buffer,80,format, args);
+        va_end (args);
+        uib_printstring(message_img, buffer, 2, 2, 0, ALIGN_LEFT, (SDL_Color){0xff,0xff,0xff,0}, (SDL_Color){0,0,0,128});
+        makeImage(&message_spr, message_img->pixels, message_img->w, message_img->h, 0);
+        messagetime = SDL_GetTicks() + ms_time;
+    } else {
+        messagetime = 0;
+    }
+}
+
 void uib_set_position(int x, int y) {
 	uib_x = x;
 	uib_y = y;
@@ -786,6 +813,10 @@ void uib_init() {
 
 	makeImage(&whitepixel_spr, (const u8[]){0xff, 0xff, 0xff, 0xff},1,1,0);
 	makeImage(&blackpixel_spr, (const u8[]){0x00, 0x00, 0x00, 0xff},1,1,0);
+
+	message_img=SDL_CreateRGBSurface(SDL_SWSURFACE,400,12,32,0x000000ff,0x0000ff00,0x00ff0000,0xff000000);
+	SDL_FillRect(message_img, NULL, SDL_MapRGBA(message_img->format,0,0,0,128));
+	makeImage(&message_spr, message_img->pixels, message_img->w, message_img->h, 0);
 
 	// other stuff
 	kb_y_pos = 240; // keboard hidden at first
