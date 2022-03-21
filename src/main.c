@@ -1111,6 +1111,14 @@ static int editconfig(vnc_config *c) {
 					// validate input
 					if (!nc.host[0]) {
 						msg = "Host name is required";
+					} else if (
+						nc.vncoff &&
+						!nc.enablevnc2 &&
+						!nc.enableaudio &&
+						!nc.ctr_udp_enable &&
+						!nc.ctr_dsu_enable)
+					{
+						msg = "Nothing to do?";
 					} else ret=1;
 					break;
 				case BUT_CPDOWN:
