@@ -1725,14 +1725,18 @@ int main() {
 				uib_handle_tap_processing(NULL);
 			SDL_Flip(sdl);
 			checkKeyRepeat();
-			while (SDL_PollEvent(&e)) {
-				if (uib_handle_event(&e, taphandling | (evtarget ? 2 : 0 ))) continue;
-				if(!handleSDLEvent(&e)) {
-					rfbClientLog("Disconnecting");
-					ext=1;
-					break;
+			if (cl || cl2) {
+				while (SDL_PollEvent(&e)) {
+					if (uib_handle_event(&e, taphandling | (evtarget ? 2 : 0 ))) continue;
+					if(!handleSDLEvent(&e)) {
+						rfbClientLog("Disconnecting");
+						ext=1;
+						break;
+					}
 				}
 			}
+			else hidScanInput();
+
 			if (ext) break;
 			push_scheduled_event();
 			// vjoy udp feeder && cemuhook server

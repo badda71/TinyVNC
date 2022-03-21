@@ -368,16 +368,23 @@ int dsu_server_update(struct dsu_server *server, u32 but, circlePosition *posCp,
 	sbuf[31] = 1;	// Is controller connected (1 if connected, 0 if not)
 	//*((u32*)(sbuf+32)) = 0; // packet number for this client - done below in client loop
 	// DPAD_LEFT, DPAD_DOWN, DPAD_RIGHT, DPAD_UP, +, RSTCK_PUSH, LSTCK_PUSH, -
-	if (but & server->button_meta) sbuf[36] =
-		(but & server->button_plus ? 0x08 : 0) |
-		(but & server->button_RSTCK_PUSH ? 0x04 : 0) |
-		(but & server->button_LSTCK_PUSH ? 0x02 : 0) |
-		(but & server->button_minus ? 0x01 : 0);
-	else sbuf[36] =
-		(but & KEY_DLEFT ? 0x80 : 0) |
-		(but & KEY_DDOWN ? 0x40 : 0) |
-		(but & KEY_DRIGHT ? 0x20 : 0) |
-		(but & KEY_DUP ? 0x10 : 0);
+	if (but & server->button_meta) {
+		sbuf[36] =
+			(but & server->button_plus ? 0x08 : 0) |
+			(but & server->button_RSTCK_PUSH ? 0x04 : 0) |
+			(but & server->button_LSTCK_PUSH ? 0x02 : 0) |
+			(but & server->button_minus ? 0x01 : 0);
+	} else {
+		sbuf[36] =
+			(but & KEY_DLEFT ? 0x80 : 0) |
+			(but & KEY_DDOWN ? 0x40 : 0) |
+			(but & KEY_DRIGHT ? 0x20 : 0) |
+			(but & KEY_DUP ? 0x10 : 0);
+		sbuf[44] = but & KEY_DLEFT ? 255 : 0;	// Analog D-Pad Left (0 or 255)
+		sbuf[45] = but & KEY_DDOWN ? 255 : 0;	// Analog D-Pad Down (0 or 255)
+		sbuf[46] = but & KEY_DRIGHT ? 255 : 0;	// Analog D-Pad Right (0 or 255)
+		sbuf[47] = but & KEY_DUP ? 255 : 0;		// Analog D-Pad Up (0 or 255)
+	}
 	sbuf[37] =	// Y, B, A, X, R, L, ZR, ZL
 		(but & KEY_Y ? 0x80 : 0) |
 		(but & KEY_B ? 0x40 : 0) |
@@ -411,10 +418,6 @@ int dsu_server_update(struct dsu_server *server, u32 but, circlePosition *posCp,
 		i=((i+server->coeffs.cs_max) * 128) / server->coeffs.cs_max;
 		sbuf[43] = i>255?255:i;
 	}
-	sbuf[44] = but & KEY_DLEFT ? 255 : 0;	// Analog D-Pad Left (0 or 255)
-	sbuf[45] = but & KEY_DDOWN ? 255 : 0;	// Analog D-Pad Down (0 or 255)
-	sbuf[46] = but & KEY_DRIGHT ? 255 : 0;	// Analog D-Pad Right (0 or 255)
-	sbuf[47] = but & KEY_DUP ? 255 : 0;		// Analog D-Pad Up (0 or 255)
 	sbuf[48] = but & KEY_Y ? 255 : 0;		// Analog Y (0 or 255)
 	sbuf[49] = but & KEY_B ? 255 : 0;		// Analog B (0 or 255)
 	sbuf[50] = but & KEY_A ? 255 : 0;		// Analog A (0 or 255)
