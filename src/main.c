@@ -636,7 +636,7 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 		}
 
 		if (e->type == SDL_MOUSEMOTION) {
-			if (tcl == cl) {
+			if (tcl && tcl == cl) {
 				float xrel = (float)e->motion.xrel * (config.scaling?1.0:(400.0 / (float)sdl->w)) * scaling_factor_top;
 				float yrel = (float)e->motion.yrel * (config.scaling?1.0:(240.0 / (float)sdl->h)) * scaling_factor_top;
 				xf += xrel;
@@ -1725,17 +1725,14 @@ int main() {
 				uib_handle_tap_processing(NULL);
 			SDL_Flip(sdl);
 			checkKeyRepeat();
-			if (cl || cl2) {
-				while (SDL_PollEvent(&e)) {
-					if (uib_handle_event(&e, taphandling | (evtarget ? 2 : 0 ))) continue;
-					if(!handleSDLEvent(&e)) {
-						rfbClientLog("Disconnecting");
-						ext=1;
-						break;
-					}
+			while (SDL_PollEvent(&e)) {
+				if (uib_handle_event(&e, taphandling | (evtarget ? 2 : 0 ))) continue;
+				if(!handleSDLEvent(&e)) {
+					rfbClientLog("Disconnecting");
+					ext=1;
+					break;
 				}
 			}
-			else hidScanInput();
 
 			if (ext) break;
 			push_scheduled_event();
