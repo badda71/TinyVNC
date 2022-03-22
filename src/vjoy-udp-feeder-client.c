@@ -202,7 +202,7 @@ int vjoy_udp_client_update(	// all parameters can be NULL except client
 		else if (buttons & KEY_CSTICK_LEFT) newp.wAxisXRot=0;
 		else newp.wAxisXRot=0x4000;
 		x=(newp.wAxisXRot>>8) - 0x40; y=(newp.wAxisYRot>>8) - 0x40;
-	}	
+	}
 	// C-Stick on Pov hat
 	if (x * x + y * y > 40 * 40) {
 		newp.contPov  = ((int)(atan2(x, y) * 18000.0 * M_1_PI) + 36000) % 36000;
@@ -214,8 +214,8 @@ int vjoy_udp_client_update(	// all parameters can be NULL except client
 
 	// Touch
 	if (touch) {
-		newp.wSlider = touch->px * 0x8000 / 320;
-		newp.wDial   = touch->py * 0x8000 / 240;
+		newp.wAxisZ = touch->px * 0x8000 / 320;
+		newp.wAxisZRot   = touch->py * 0x8000 / 240;
 	}
 	
 	// Accelerometer
