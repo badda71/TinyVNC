@@ -29,6 +29,9 @@ struct vjoy_udp_client {
 	int lasterrno;
 	struct vjoy_udp_coeffs coeffs;
 	u32 metabutton; // KEY_SELECT per default
+	int mouse_relative; // 0 for absolute, 1 for relative mouse movements (default 0)
+	int mouse_sensitivity; // mouse sensitivity for relative movements (default 10)
+	int interval; // in which intervals (ms) should we send new data to the server? (default 75)
 };
 
 extern int vjoy_udp_client_init(struct vjoy_udp_client *client, char *hostname, int port);

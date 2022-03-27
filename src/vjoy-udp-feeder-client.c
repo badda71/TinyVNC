@@ -84,7 +84,14 @@ int vjoy_udp_client_init(struct vjoy_udp_client *client, char *hostname, int por
 	
 	// default meta button is select
 	client->metabutton = KEY_SELECT;
-	
+
+	// mouse setup
+	client->mouse_relative = 0; // 0 for absolute, 1 for relative mouse movements (default 0)
+	client->mouse_sensitivity = 10; // mouse sensitivity for relative movements (default 10)
+
+	// other default values
+	client->interval = 75; // 75ms
+
 	// set default coeffs
 	client->coeffs.cp_deadzone = 20;
 	client->coeffs.cp_max = 150;
@@ -101,7 +108,7 @@ int vjoy_udp_client_init(struct vjoy_udp_client *client, char *hostname, int por
 	client->coeffs.gy_deadzone = 20;
 	client->coeffs.gy_max= 900;
 	client->coeffs.gy_threshold = 10;
-	
+
 	return 0;
 }
 
@@ -172,90 +179,164 @@ int vjoy_udp_client_update(	// all parameters can be NULL except client
 	angularRate *gyro)
 {
 	static struct vjoy_packet oldp = {0};
+	static u64 lastupdate = 0;
+	static int count = 0;
+	static struct {
+		u32 buttons;
+		int posCp_x;
+		int posCp_y;
+		int posStk_x;
+		int posStk_y;
+		int touch_x;
+		int touch_y;
+		int touch_dx;
+		int touch_dy;
+		int gyro_x;
+		int gyro_y;
+		int gyro_z;
+		int accel_x;
+		int accel_y;
+		int accel_z;
+	} data = {0};
 	struct vjoy_packet newp = {0}, sendp = {0};
 
-	// C-Pad
+	// collect data until we trigger an update
+	data.buttons |= buttons;
 	if (posCp) {
-		buttons = buttons & 0x0FFFFFFF; // blank out the C-Pad buttons, we are sending real coordinates
-		newp.wAxisX = vjoy_udp_client_transform(posCp->dx, client->coeffs.cp_deadzone, client->coeffs.cp_max, client->coeffs.cp_threshold, 0x8000, 0);
-		newp.wAxisY = vjoy_udp_client_transform(posCp->dy, client->coeffs.cp_deadzone, client->coeffs.cp_max, client->coeffs.cp_threshold, 0x8000, 0);
-	} else {
-		if (buttons & KEY_CPAD_UP) newp.wAxisY=0x8000;
-		else if (buttons & KEY_CPAD_DOWN) newp.wAxisY=0;
-		else newp.wAxisY=0x4000;
-		if (buttons & KEY_CPAD_RIGHT) newp.wAxisX=0x8000;
-		else if (buttons & KEY_CPAD_LEFT) newp.wAxisX=0;
-		else newp.wAxisX=0x4000;
+		data.posCp_x += posCp->dx;
+		data.posCp_y += posCp->dy;
 	}
-	// C-Stick
-	int x=0,y=0;
 	if (posStk) {
-		buttons = buttons & 0xF0FFFFFF; // blank out the C-Stick buttons, we are sending real coordinates
-		newp.wAxisXRot= vjoy_udp_client_transform(posStk->dx, client->coeffs.cs_deadzone, client->coeffs.cs_max, client->coeffs.cs_threshold, 0x8000, 0);
-		newp.wAxisYRot= vjoy_udp_client_transform(posStk->dy, client->coeffs.cs_deadzone, client->coeffs.cs_max, client->coeffs.cs_threshold, 0x8000, 0);
-		x=posStk->dx; y=posStk->dy;
-	} else {
-		if (buttons & KEY_CSTICK_UP) newp.wAxisYRot=0x8000;
-		else if (buttons & KEY_CSTICK_DOWN) newp.wAxisYRot=0;
-		else newp.wAxisYRot=0x4000;
-		if (buttons & KEY_CSTICK_RIGHT) newp.wAxisXRot=0x8000;
-		else if (buttons & KEY_CSTICK_LEFT) newp.wAxisXRot=0;
-		else newp.wAxisXRot=0x4000;
-		x=(newp.wAxisXRot>>8) - 0x40; y=(newp.wAxisYRot>>8) - 0x40;
+		data.posStk_x += posStk->dx;
+		data.posStk_y += posStk->dy;
 	}
-	// C-Stick on Pov hat
-	if (x * x + y * y > 40 * 40) {
-		newp.contPov  = ((int)(atan2(x, y) * 18000.0 * M_1_PI) + 36000) % 36000;
-		newp.discPovs = (int)((newp.contPov + 4500) / 9000) % 4;
-	} else {
-		newp.contPov  = 0xFFFFFFFF;
-		newp.discPovs = 0xF;
-	}
-
-	// Touch
 	if (touch) {
-		newp.wAxisZ = touch->px * 0x8000 / 320;
-		newp.wAxisZRot   = touch->py * 0x8000 / 240;
-	}
-	
-	// Accelerometer
-	if (accel) {
-		newp.wAxisXAccel = vjoy_udp_client_transform(accel->x, client->coeffs.acc_deadzone, client->coeffs.acc_max, client->coeffs.acc_threshold, 0x8000, 1);
-		newp.wAxisYAccel = vjoy_udp_client_transform(accel->y, client->coeffs.acc_deadzone, client->coeffs.acc_max, client->coeffs.acc_threshold, 0x8000, 1);
-		newp.wAxisZAccel = vjoy_udp_client_transform(accel->z, client->coeffs.acc_deadzone, client->coeffs.acc_max, client->coeffs.acc_threshold, 0x8000, 1);
-	}
-	
-	// Gyro
-	if (gyro) {
-		newp.wAxisXGyro = vjoy_udp_client_transform(gyro->x, client->coeffs.gy_deadzone, client->coeffs.gy_max, client->coeffs.gy_threshold, 0x8000, 1);
-		newp.wAxisYGyro = vjoy_udp_client_transform(gyro->y, client->coeffs.gy_deadzone, client->coeffs.gy_max, client->coeffs.gy_threshold, 0x8000, 1);
-		newp.wAxisZGyro = vjoy_udp_client_transform(gyro->z, client->coeffs.gy_deadzone, client->coeffs.gy_max, client->coeffs.gy_threshold, 0x8000, 1);
-	}
-
-	// Buttons
-	u32 nbut = 0;
-	// re-order buttons according to buttons3ds array, remove meta button
-	for (int i1=0, i2=0; buttons3ds[i1] && i2<32; ++i1) {
-		if (buttons3ds[i1] == client->metabutton) continue;
-		if ((buttons & buttons3ds[i1]) != 0) nbut |= BIT(i2);
-		i2++;
-	}
-	//  bitshift 16 if meta button is pressed
-	if (client->metabutton) {
-		if ((buttons & client->metabutton) != 0) nbut = nbut << 16;
-		else nbut &= 0x0000FFFF;
-	}
-	newp.lButtons = nbut;
-
-	// do we have anythign new to send?
-	if (memcmp(&newp, &oldp, sizeof(newp))) {
-		memcpy(&oldp, &newp, sizeof(newp));
-		// send
-		int *i1 = (int*)&newp; int *i2 = (int*)&sendp;
-		for (int i=0; i < sizeof(newp)/sizeof(int); i++) {
-			i2[i]=htonl(i1[i]);
+		static int oldx=0, oldy=0, oldstate=0;
+		if (buttons & KEY_TOUCH) {
+			if (!oldstate) {
+				oldx = touch->px;
+				oldy = touch->py;
+			}
+			data.touch_x += touch->px;
+			data.touch_y += touch->py;
+			data.touch_dx += touch->px - oldx;
+			data.touch_dy += touch->py - oldy;
+			oldx = touch->px;
+			oldy = touch->py;
+		} else {
+			data.touch_x += oldx;
+			data.touch_y += oldy;
 		}
-		return vjoy_udp_client_sendUDP(client, &sendp, sizeof(sendp));
+		oldstate = buttons & KEY_TOUCH;
+	}
+	if (gyro) {
+		data.gyro_x += gyro->x;
+		data.gyro_y += gyro->y;
+		data.gyro_y += gyro->z;
+	}
+	if (accel) {
+		data.accel_x += accel->x;
+		data.accel_y += accel->y;
+		data.accel_y += accel->z;
+	}
+	++count;
+
+	u64 now = getmicrotime();
+	if (!lastupdate) lastupdate = now;
+	if (now - lastupdate > client->interval) { // done collecting data - now send!
+		lastupdate = now;
+
+		// C-Pad
+		if (posCp) {
+			data.buttons &= 0x0FFFFFFF; // blank out the C-Pad buttons, we are sending real coordinates
+			newp.wAxisX = vjoy_udp_client_transform(data.posCp_x / count, client->coeffs.cp_deadzone, client->coeffs.cp_max, client->coeffs.cp_threshold, 0x8000, 0);
+			newp.wAxisY = vjoy_udp_client_transform(data.posCp_y / count, client->coeffs.cp_deadzone, client->coeffs.cp_max, client->coeffs.cp_threshold, 0x8000, 0);
+		} else {
+			if (data.buttons & KEY_CPAD_UP) newp.wAxisY=0x8000;
+			else if (data.buttons & KEY_CPAD_DOWN) newp.wAxisY=0;
+			else newp.wAxisY=0x4000;
+			if (data.buttons & KEY_CPAD_RIGHT) newp.wAxisX=0x8000;
+			else if (data.buttons & KEY_CPAD_LEFT) newp.wAxisX=0;
+			else newp.wAxisX=0x4000;
+		}
+		// C-Stick
+		int x=0,y=0;
+		if (posStk) {
+			data.buttons &= 0xF0FFFFFF; // blank out the C-Stick buttons, we are sending real coordinates
+			newp.wAxisXRot= vjoy_udp_client_transform(data.posStk_x / count, client->coeffs.cs_deadzone, client->coeffs.cs_max, client->coeffs.cs_threshold, 0x8000, 0);
+			newp.wAxisYRot= vjoy_udp_client_transform(data.posStk_y / count, client->coeffs.cs_deadzone, client->coeffs.cs_max, client->coeffs.cs_threshold, 0x8000, 0);
+			x=posStk->dx; y=posStk->dy;
+		} else {
+			if (data.buttons & KEY_CSTICK_UP) newp.wAxisYRot=0x8000;
+			else if (data.buttons & KEY_CSTICK_DOWN) newp.wAxisYRot=0;
+			else newp.wAxisYRot=0x4000;
+			if (data.buttons & KEY_CSTICK_RIGHT) newp.wAxisXRot=0x8000;
+			else if (data.buttons & KEY_CSTICK_LEFT) newp.wAxisXRot=0;
+			else newp.wAxisXRot=0x4000;
+			x=(newp.wAxisXRot>>8) - 0x40; y=(newp.wAxisYRot>>8) - 0x40;
+		}
+		// C-Stick on Pov hat
+		if (x * x + y * y > 40 * 40) {
+			newp.contPov  = ((int)(atan2(x, y) * 18000.0 * M_1_PI) + 36000) % 36000;
+			newp.discPovs = (int)((newp.contPov + 4500) / 9000) % 4;
+		} else {
+			newp.contPov  = 0xFFFFFFFF;
+			newp.discPovs = 0xF;
+		}
+
+		// Touch (relative or absolute)
+		if (touch) {
+			if (client->mouse_relative) {
+				newp.wAxisZ =    LIMIT((data.touch_dx * 0x4000 * client->mouse_sensitivity) / (320*10) + 0x4000, 0, 0x8000);
+				newp.wAxisZRot = LIMIT((data.touch_dy * 0x4000 * client->mouse_sensitivity) / (240*10) + 0x4000, 0, 0x8000);
+			} else {
+				newp.wAxisZ =    (data.touch_x / count) * 0x8000 / 320;
+				newp.wAxisZRot = (data.touch_y / count) * 0x8000 / 240;
+			}
+		}
+
+		// Accelerometer
+		if (accel) {
+			newp.wAxisXAccel = vjoy_udp_client_transform(data.accel_x / count, client->coeffs.acc_deadzone, client->coeffs.acc_max, client->coeffs.acc_threshold, 0x8000, 1);
+			newp.wAxisYAccel = vjoy_udp_client_transform(data.accel_y / count, client->coeffs.acc_deadzone, client->coeffs.acc_max, client->coeffs.acc_threshold, 0x8000, 1);
+			newp.wAxisZAccel = vjoy_udp_client_transform(data.accel_z / count, client->coeffs.acc_deadzone, client->coeffs.acc_max, client->coeffs.acc_threshold, 0x8000, 1);
+		}
+
+		// Gyro
+		if (gyro) {
+			newp.wAxisXGyro = vjoy_udp_client_transform(data.gyro_x / count, client->coeffs.gy_deadzone, client->coeffs.gy_max, client->coeffs.gy_threshold, 0x8000, 1);
+			newp.wAxisYGyro = vjoy_udp_client_transform(data.gyro_y / count, client->coeffs.gy_deadzone, client->coeffs.gy_max, client->coeffs.gy_threshold, 0x8000, 1);
+			newp.wAxisZGyro = vjoy_udp_client_transform(data.gyro_z / count, client->coeffs.gy_deadzone, client->coeffs.gy_max, client->coeffs.gy_threshold, 0x8000, 1);
+		}
+
+		// Buttons
+		u32 nbut = 0;
+		// re-order buttons according to buttons3ds array, remove meta button
+		for (int i1=0, i2=0; buttons3ds[i1] && i2<32; ++i1) {
+			if (buttons3ds[i1] == client->metabutton) continue;
+			if ((data.buttons & buttons3ds[i1]) != 0) nbut |= BIT(i2);
+			i2++;
+		}
+		//  bitshift 16 if meta button is pressed
+		if (client->metabutton) {
+			if ((data.buttons & client->metabutton) != 0) nbut = nbut << 16;
+			else nbut &= 0x0000FFFF;
+		}
+		newp.lButtons = nbut;
+
+		count = 0;
+		bzero(&data, sizeof(data));
+
+		// do we have anythign new to send?
+		if (memcmp(&newp, &oldp, sizeof(newp))) {
+			memcpy(&oldp, &newp, sizeof(newp));
+			// send
+			int *i1 = (int*)&newp; int *i2 = (int*)&sendp;
+			for (int i=0; i < sizeof(newp)/sizeof(int); i++) {
+				i2[i]=htonl(i1[i]);
+			}
+			return vjoy_udp_client_sendUDP(client, &sendp, sizeof(sendp));
+		}
 	}
 	return 0;
 }

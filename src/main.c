@@ -1687,6 +1687,9 @@ int main() {
 			if (vjoy_udp_client_init(&udpclient, config.host, config.ctr_udp_port))
 				rfbClientErr("vJoy-UDP-feeder client error: %s", udpclient.lasterrmsg);
 			else {
+				//udpclient.mouse_relative = 1;
+				//udpclient.mouse_sensitivity = 500;
+				//udpclient.interval = 100;
 				rfbClientLog("vJoy-UDP-feeder client started");
 				++active;
 			}
