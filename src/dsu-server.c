@@ -64,6 +64,7 @@ int dsu_server_init(struct dsu_server *server, int port)
 	server->button_minus = KEY_DDOWN;
 	server->button_LSTCK_PUSH = KEY_DLEFT;
 	server->button_RSTCK_PUSH = KEY_DRIGHT;
+	server->interval = 75;
 
 	// set default coeffs
 	server->coeffs.cp_deadzone = 20;
@@ -356,148 +357,218 @@ static u32 dsu_server_transform(int a, int dead, int max, u32 thresh)
 // all parameters can be NULL except server
 int dsu_server_update(struct dsu_server *server, u32 but, circlePosition *posCp, circlePosition *posStk, touchPosition *touch, accelVector *accel, angularRate *gyro)
 {
-	static u8 oldacc[12]={0};
-	static u64 accts = 0;
-	
-	u8 sbuf[100] = {0};
-	int i;
-	
-	*((u32*)(sbuf+16)) = 0x100002;
-	dsu_fill_controller_info(0, sbuf + 20);
-	
-	sbuf[31] = 1;	// Is controller connected (1 if connected, 0 if not)
-	//*((u32*)(sbuf+32)) = 0; // packet number for this client - done below in client loop
-	// DPAD_LEFT, DPAD_DOWN, DPAD_RIGHT, DPAD_UP, +, RSTCK_PUSH, LSTCK_PUSH, -
-	if (but & server->button_meta) {
-		sbuf[36] =
-			(but & server->button_plus ? 0x08 : 0) |
-			(but & server->button_RSTCK_PUSH ? 0x04 : 0) |
-			(but & server->button_LSTCK_PUSH ? 0x02 : 0) |
-			(but & server->button_minus ? 0x01 : 0);
-	} else {
-		sbuf[36] =
-			(but & KEY_DLEFT ? 0x80 : 0) |
-			(but & KEY_DDOWN ? 0x40 : 0) |
-			(but & KEY_DRIGHT ? 0x20 : 0) |
-			(but & KEY_DUP ? 0x10 : 0);
-		sbuf[44] = but & KEY_DLEFT ? 255 : 0;	// Analog D-Pad Left (0 or 255)
-		sbuf[45] = but & KEY_DDOWN ? 255 : 0;	// Analog D-Pad Down (0 or 255)
-		sbuf[46] = but & KEY_DRIGHT ? 255 : 0;	// Analog D-Pad Right (0 or 255)
-		sbuf[47] = but & KEY_DUP ? 255 : 0;		// Analog D-Pad Up (0 or 255)
-	}
-	sbuf[37] =	// Y, B, A, X, R, L, ZR, ZL
-		(but & KEY_Y ? 0x80 : 0) |
-		(but & KEY_B ? 0x40 : 0) |
-		(but & KEY_A ? 0x20 : 0) |
-		(but & KEY_X ? 0x10 : 0) |
-		(but & KEY_R ? 0x08 : 0) |
-		(but & KEY_L ? 0x04 : 0) |
-		(but & KEY_ZR ? 0x02 : 0) |
-		(but & KEY_ZL ? 0x01 : 0);
-	sbuf[38] = // HOME Button (0 or 1)
-		but & KEY_SELECT && but & KEY_START ? 1 : 0;
-	sbuf[39] = // Touch Button (0 or 1)
-		but & KEY_TOUCH ? 1 : 0;
+	static u64 lastupdate = 0;
+	static int count = 0;
+	static struct {
+		u32 but;
+		int posCp_x;
+		int posCp_y;
+		int posStk_x;
+		int posStk_y;
+		int touch_x;
+		int touch_y;
+		int touch_dx;
+		int touch_dy;
+		int gyro_x;
+		int gyro_y;
+		int gyro_z;
+		int accel_x;
+		int accel_y;
+		int accel_z;
+	} data = {0};
+
+	// collect data until we trigger an update
+	data.but |= but;
 	if (posCp) {
-		// Left stick X (plus rightward, 128=neutral)
-		i=dsu_server_transform(posCp->dx, server->coeffs.cp_deadzone, server->coeffs.cp_max, server->coeffs.cp_threshold);
-		i=((i+server->coeffs.cp_max) * 128) / server->coeffs.cp_max;
-		sbuf[40] = i>255?255:i;
-		// Left stick Y (plus upward, 128=neutral)
-		i=dsu_server_transform(posCp->dy, server->coeffs.cp_deadzone, server->coeffs.cp_max, server->coeffs.cp_threshold);
-		i=((i+server->coeffs.cp_max) * 128) / server->coeffs.cp_max;
-		sbuf[41] = i>255?255:i;
+		data.posCp_x += posCp->dx;
+		data.posCp_y += posCp->dy;
 	}
 	if (posStk) {
-		// Right stick X (plus rightward, 128=neutral)
-		i=dsu_server_transform(posStk->dx, server->coeffs.cs_deadzone, server->coeffs.cs_max, server->coeffs.cs_threshold);
-		i=((i+server->coeffs.cs_max) * 128) / server->coeffs.cs_max;
-		sbuf[42] = i>255?255:i;
-		// Right stick Y (plus upward, 128=neutral)
-		i=dsu_server_transform(posStk->dy, server->coeffs.cs_deadzone, server->coeffs.cs_max, server->coeffs.cs_threshold);
-		i=((i+server->coeffs.cs_max) * 128) / server->coeffs.cs_max;
-		sbuf[43] = i>255?255:i;
+		data.posStk_x += posStk->dx;
+		data.posStk_y += posStk->dy;
 	}
-	sbuf[48] = but & KEY_Y ? 255 : 0;		// Analog Y (0 or 255)
-	sbuf[49] = but & KEY_B ? 255 : 0;		// Analog B (0 or 255)
-	sbuf[50] = but & KEY_A ? 255 : 0;		// Analog A (0 or 255)
-	sbuf[51] = but & KEY_X ? 255 : 0;		// Analog X (0 or 255)
-	sbuf[52] = but & KEY_R ? 255 : 0;		// Analog R (0 or 255)
-	sbuf[53] = but & KEY_L ? 255 : 0;		// Analog L (0 or 255)
-	sbuf[54] = but & KEY_ZR ? 255 : 0;		// Analog ZR (0 or 255)
-	sbuf[55] = but & KEY_ZL ? 255 : 0;		// Analog ZL (0 or 255)
-	sbuf[56] = but & KEY_TOUCH ? 1 : 0;		// first touch? Is touch active (1 if active, else 0)
 	if (touch) {
-		// Touch id (should be the same for one continious touch)
-		static u8 laststate=0, lastid=0;
-		const u8 state=sbuf[56];
-		if (state && !laststate) do {++lastid;} while (!lastid);
-		laststate = state;
-		sbuf[57] = state ? lastid : 0;
-
-		*((u16*)(sbuf+58)) = touch->px;	// Touch X position
-		*((u16*)(sbuf+60)) = touch->py;	// Touch Y position
-	}
-	// sbuf[62]-sbuf[67]: second touch (n/a)
-
-	if (accel) {
-		// Accelerometer X axis (in Gs) (/520)
-		i=dsu_server_transform(accel->x, server->coeffs.acc_deadzone, 0, server->coeffs.acc_threshold);
-		*((float*)(sbuf+76)) = -(float)i / 510.0f;
-		// Accelerometer Y axis (in Gs)
-		i=dsu_server_transform(accel->y, server->coeffs.acc_deadzone, 0, server->coeffs.acc_threshold);		
-		*((float*)(sbuf+80)) = (float)i / 510.0f;
-		// Accelerometer Z axis (in Gs)
-		i=dsu_server_transform(accel->z, server->coeffs.acc_deadzone, 0, server->coeffs.acc_threshold);
-		*((float*)(sbuf+84)) = -(float)i / 510.0f;
-		// Motion data timestamp in microseconds, update only with accelerometer (but not gyro only) changes
-		if (memcmp(oldacc, sbuf+76, 12)) {
-			memcpy(oldacc, sbuf+76, 12);
-			accts = getmicrotime();
+		static int oldx=0, oldy=0, oldstate=0;
+		if (but & KEY_TOUCH) {
+			if (!oldstate) {
+				oldx = touch->px;
+				oldy = touch->py;
+			}
+			data.touch_x += touch->px;
+			data.touch_y += touch->py;
+			data.touch_dx += touch->px - oldx;
+			data.touch_dy += touch->py - oldy;
+			oldx = touch->px;
+			oldy = touch->py;
+		} else {
+			data.touch_x += oldx;
+			data.touch_y += oldy;
 		}
-		*((u64*)(sbuf+68)) = accts;
+		oldstate = but & KEY_TOUCH;
 	}
-
 	if (gyro) {
-		// Gyroscope pitch (in deg/s)
-		i=dsu_server_transform(gyro->x, server->coeffs.gy_deadzone, 0, server->coeffs.gy_threshold);
-		*((float*)(sbuf+88)) = -(float)i / server->coeffs.gy_raw2dps;
-		// Gyroscope yaw (in deg/s)
-		i=dsu_server_transform(gyro->z, server->coeffs.gy_deadzone, 0, server->coeffs.gy_threshold);
-		*((float*)(sbuf+92)) = -(float)i / server->coeffs.gy_raw2dps;
-		// Gyroscope roll (in deg/s)
-		i=dsu_server_transform(gyro->y, server->coeffs.gy_deadzone, 0, server->coeffs.gy_threshold);
-		*((float*)(sbuf+96)) = (float)i / server->coeffs.gy_raw2dps;
+		data.gyro_x += gyro->x;
+		data.gyro_y += gyro->y;
+		data.gyro_z += gyro->z;
 	}
+	if (accel) {
+		data.accel_x += accel->x;
+		data.accel_y += accel->y;
+		data.accel_z += accel->z;
+	}
+	++count;
 
-	// send to all clients
-	struct dsu_client *c,*c1;
-	u64 tim = time(NULL);
-	for(c = server->cli_first; c != NULL; ) {
+	u64 now = getmicrotime();
+	if (!lastupdate) lastupdate = now;
+	if (now - lastupdate > server->interval) { // done collecting data - now send!
+		lastupdate = now;
+
+		static u8 oldacc[12]={0};
+		static u64 accts = 0;
+
+		u8 sbuf[100] = {0};
+		int i;
+
+		*((u32*)(sbuf+16)) = 0x100002;
+		dsu_fill_controller_info(0, sbuf + 20);
 		
-		// check if we have a client timeout
-		if (tim - c->timestamp > CLIENT_TIMEOUT) {
-			// remove client and move to next
-			if (server->cli_first == c) server->cli_first = c->next;
-			if (server->cli_last == c) server->cli_last = c->prev;
-			if (c->prev) c->prev->next = c->next;
-			if (c->next) c->next->prev = c->prev;
-			c1 = c->next;
-			free(c);
-			c=c1;
-			continue;
+		sbuf[31] = 1;	// Is controller connected (1 if connected, 0 if not)
+		//*((u32*)(sbuf+32)) = 0; // packet number for this client - done below in client loop
+		// DPAD_LEFT, DPAD_DOWN, DPAD_RIGHT, DPAD_UP, +, RSTCK_PUSH, LSTCK_PUSH, -
+		if (data.but & server->button_meta) {
+			sbuf[36] =
+				(data.but & server->button_plus ? 0x08 : 0) |
+				(data.but & server->button_RSTCK_PUSH ? 0x04 : 0) |
+				(data.but & server->button_LSTCK_PUSH ? 0x02 : 0) |
+				(data.but & server->button_minus ? 0x01 : 0);
+		} else {
+			sbuf[36] =
+				(data.but & KEY_DLEFT ? 0x80 : 0) |
+				(data.but & KEY_DDOWN ? 0x40 : 0) |
+				(data.but & KEY_DRIGHT ? 0x20 : 0) |
+				(data.but & KEY_DUP ? 0x10 : 0);
+			sbuf[44] = data.but & KEY_DLEFT ? 255 : 0;	// Analog D-Pad Left (0 or 255)
+			sbuf[45] = data.but & KEY_DDOWN ? 255 : 0;	// Analog D-Pad Down (0 or 255)
+			sbuf[46] = data.but & KEY_DRIGHT ? 255 : 0;	// Analog D-Pad Right (0 or 255)
+			sbuf[47] = data.but & KEY_DUP ? 255 : 0;		// Analog D-Pad Up (0 or 255)
 		}
+		sbuf[37] =	// Y, B, A, X, R, L, ZR, ZL
+			(data.but & KEY_Y ? 0x80 : 0) |
+			(data.but & KEY_B ? 0x40 : 0) |
+			(data.but & KEY_A ? 0x20 : 0) |
+			(data.but & KEY_X ? 0x10 : 0) |
+			(data.but & KEY_R ? 0x08 : 0) |
+			(data.but & KEY_L ? 0x04 : 0) |
+			(data.but & KEY_ZR ? 0x02 : 0) |
+			(data.but & KEY_ZL ? 0x01 : 0);
+		sbuf[38] = // HOME Button (0 or 1)
+			data.but & KEY_SELECT && data.but & KEY_START ? 1 : 0;
+		sbuf[39] = // Touch Button (0 or 1)
+			data.but & KEY_TOUCH ? 1 : 0;
+		if (posCp) {
+			// Left stick X (plus rightward, 128=neutral)
+			i=dsu_server_transform(data.posCp_x / count, server->coeffs.cp_deadzone, server->coeffs.cp_max, server->coeffs.cp_threshold);
+			i=((i+server->coeffs.cp_max) * 128) / server->coeffs.cp_max;
+			sbuf[40] = i>255?255:i;
+			// Left stick Y (plus upward, 128=neutral)
+			i=dsu_server_transform(data.posCp_y / count, server->coeffs.cp_deadzone, server->coeffs.cp_max, server->coeffs.cp_threshold);
+			i=((i+server->coeffs.cp_max) * 128) / server->coeffs.cp_max;
+			sbuf[41] = i>255?255:i;
+		}
+		if (posStk) {
+			// Right stick X (plus rightward, 128=neutral)
+			i=dsu_server_transform(data.posStk_x / count, server->coeffs.cs_deadzone, server->coeffs.cs_max, server->coeffs.cs_threshold);
+			i=((i+server->coeffs.cs_max) * 128) / server->coeffs.cs_max;
+			sbuf[42] = i>255?255:i;
+			// Right stick Y (plus upward, 128=neutral)
+			i=dsu_server_transform(data.posStk_y / count, server->coeffs.cs_deadzone, server->coeffs.cs_max, server->coeffs.cs_threshold);
+			i=((i+server->coeffs.cs_max) * 128) / server->coeffs.cs_max;
+			sbuf[43] = i>255?255:i;
+		}
+		sbuf[48] = data.but & KEY_Y ? 255 : 0;		// Analog Y (0 or 255)
+		sbuf[49] = data.but & KEY_B ? 255 : 0;		// Analog B (0 or 255)
+		sbuf[50] = data.but & KEY_A ? 255 : 0;		// Analog A (0 or 255)
+		sbuf[51] = data.but & KEY_X ? 255 : 0;		// Analog X (0 or 255)
+		sbuf[52] = data.but & KEY_R ? 255 : 0;		// Analog R (0 or 255)
+		sbuf[53] = data.but & KEY_L ? 255 : 0;		// Analog L (0 or 255)
+		sbuf[54] = data.but & KEY_ZR ? 255 : 0;		// Analog ZR (0 or 255)
+		sbuf[55] = data.but & KEY_ZL ? 255 : 0;		// Analog ZL (0 or 255)
+		sbuf[56] = data.but & KEY_TOUCH ? 1 : 0;		// first touch? Is touch active (1 if active, else 0)
+		if (touch) {
+			// Touch id (should be the same for one continious touch)
+			static u8 laststate=0, lastid=0;
+			const u8 state=sbuf[56];
+			if (state && !laststate) do {++lastid;} while (!lastid);
+			laststate = state;
+			sbuf[57] = state ? lastid : 0;
+
+			*((u16*)(sbuf+58)) = data.touch_x  / count;	// Touch X position
+			*((u16*)(sbuf+60)) = data.touch_y  / count;	// Touch Y position
+		}
+		// sbuf[62]-sbuf[67]: second touch (n/a)
+
+		if (accel) {
+			// Accelerometer X axis (in Gs) (/520)
+			i=dsu_server_transform(data.accel_x / count, server->coeffs.acc_deadzone, 0, server->coeffs.acc_threshold);
+			*((float*)(sbuf+76)) = -(float)i / 510.0f;
+			// Accelerometer Y axis (in Gs)
+			i=dsu_server_transform(data.accel_y / count, server->coeffs.acc_deadzone, 0, server->coeffs.acc_threshold);
+			*((float*)(sbuf+80)) = (float)i / 510.0f;
+			// Accelerometer Z axis (in Gs)
+			i=dsu_server_transform(data.accel_z / count, server->coeffs.acc_deadzone, 0, server->coeffs.acc_threshold);
+			*((float*)(sbuf+84)) = -(float)i / 510.0f;
+			// Motion data timestamp in microseconds, update only with accelerometer (but not gyro only) changes
+			if (memcmp(oldacc, sbuf+76, 12)) {
+				memcpy(oldacc, sbuf+76, 12);
+				accts = now;
+			}
+			*((u64*)(sbuf+68)) = accts;
+		}
+
+		if (gyro) {
+			// Gyroscope pitch (in deg/s)
+			i=dsu_server_transform(data.gyro_x / count, server->coeffs.gy_deadzone, 0, server->coeffs.gy_threshold);
+			*((float*)(sbuf+88)) = -(float)i / server->coeffs.gy_raw2dps;
+			// Gyroscope yaw (in deg/s)
+			i=dsu_server_transform(data.gyro_z / count, server->coeffs.gy_deadzone, 0, server->coeffs.gy_threshold);
+			*((float*)(sbuf+92)) = -(float)i / server->coeffs.gy_raw2dps;
+			// Gyroscope roll (in deg/s)
+			i=dsu_server_transform(data.gyro_y / count, server->coeffs.gy_deadzone, 0, server->coeffs.gy_threshold);
+			*((float*)(sbuf+96)) = (float)i / server->coeffs.gy_raw2dps;
+		}
+
+		count = 0;
+		bzero(&data, sizeof(data));
+
+		// send to all clients
+		struct dsu_client *c,*c1;
+		u64 tim = time(NULL);
+		for(c = server->cli_first; c != NULL; ) {
 			
-		// check if this packet was already sent
-		*((u32*)(sbuf+32)) = 0;
-		if (memcmp(sbuf+20, c->oldpacket, 80)) {
-			memcpy(c->oldpacket, sbuf+20, 80);
-			// update packet number and send packet
-			*((u32*)(sbuf+32)) = ++(c->packet_count); // packet number for this client
-			dsu_send_packet(server, (struct sockaddr*)&c->addr, sbuf, 100);
-//hex_dump(sbuf,100,"controler update");
+			// check if we have a client timeout
+			if (tim - c->timestamp > CLIENT_TIMEOUT) {
+				// remove client and move to next
+				if (server->cli_first == c) server->cli_first = c->next;
+				if (server->cli_last == c) server->cli_last = c->prev;
+				if (c->prev) c->prev->next = c->next;
+				if (c->next) c->next->prev = c->prev;
+				c1 = c->next;
+				free(c);
+				c=c1;
+				continue;
+			}
+
+			// check if this packet was already sent
+			*((u32*)(sbuf+32)) = 0;
+			if (memcmp(sbuf+20, c->oldpacket, 80)) {
+				memcpy(c->oldpacket, sbuf+20, 80);
+				// update packet number and send packet
+				*((u32*)(sbuf+32)) = ++(c->packet_count); // packet number for this client
+				dsu_send_packet(server, (struct sockaddr*)&c->addr, sbuf, 100);
+	//hex_dump(sbuf,100,"controler update");
+			}
+			c = c->next;
 		}
-		c = c->next;
 	}
 	return 0;
 }

@@ -232,12 +232,12 @@ int vjoy_udp_client_update(	// all parameters can be NULL except client
 	if (gyro) {
 		data.gyro_x += gyro->x;
 		data.gyro_y += gyro->y;
-		data.gyro_y += gyro->z;
+		data.gyro_z += gyro->z;
 	}
 	if (accel) {
 		data.accel_x += accel->x;
 		data.accel_y += accel->y;
-		data.accel_y += accel->z;
+		data.accel_z += accel->z;
 	}
 	++count;
 

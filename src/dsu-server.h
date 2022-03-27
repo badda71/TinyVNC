@@ -39,10 +39,11 @@ struct dsu_server {
 	struct dsu_client *cli_last;
 	struct dsu_coeffs coeffs;
 	u32 button_meta; // KEY_SELECT per default
-	u32 button_plus; // KEY_DUP per default
-	u32 button_minus; // KEY_DDOWN per default
-	u32 button_LSTCK_PUSH; // KEY_DLEFT per default
-	u32 button_RSTCK_PUSH; // KEY_DRIGHT per default
+	u32 button_plus; // KEY_DUP per default (+meta)
+	u32 button_minus; // KEY_DDOWN per default (+meta)
+	u32 button_LSTCK_PUSH; // KEY_DLEFT per default (+meta)
+	u32 button_RSTCK_PUSH; // KEY_DRIGHT per default (+meta)
+	int interval; // in which minimum intervals (ms) should we send new data to the clients? (default 75)
 };
 
 extern int dsu_server_init(struct dsu_server *server, int port);

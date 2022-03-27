@@ -1698,6 +1698,7 @@ int main() {
 			if (dsu_server_init(&dsuserver, config.ctr_dsu_port))
 				rfbClientErr("Cemuhook server: %s", dsuserver.lasterrmsg);
 			else {
+				//dsuserver.interval = 0;
 				rfbClientLog("Cemuhook started: %s:%d", dsuserver.ipstr, dsuserver.port);
 				++active;
 			}
