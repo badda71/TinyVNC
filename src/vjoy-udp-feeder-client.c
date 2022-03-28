@@ -275,14 +275,19 @@ int vjoy_udp_client_update(	// all parameters can be NULL except client
 			else newp.wAxisXRot=0x4000;
 			x=(newp.wAxisXRot>>8) - 0x40; y=(newp.wAxisYRot>>8) - 0x40;
 		}
-		// C-Stick on Pov hat
+		// C-Stick on Pov hat #1
 		if (x * x + y * y > 40 * 40) {
 			newp.contPov  = ((int)(atan2(x, y) * 18000.0 * M_1_PI) + 36000) % 36000;
-			newp.discPovs = (int)((newp.contPov + 4500) / 9000) % 4;
+			newp.discPovs = ((int)((newp.contPov + 4500) / 9000) % 4) | 0xFFFFFF00;
 		} else {
 			newp.contPov  = 0xFFFFFFFF;
-			newp.discPovs = 0xF;
+			newp.discPovs = 0xFFFFFF0F;
 		}
+		//D-Pad on Pov hat #2 (discrete only)
+		if (data.buttons & KEY_DRIGHT) newp.discPovs |= 0x10;
+		else if (data.buttons & KEY_DLEFT) newp.discPovs |= 0x30;
+		else if (data.buttons & KEY_DDOWN) newp.discPovs |= 0x20;
+		else if (!(data.buttons & KEY_DUP)) newp.discPovs |= 0xF0;
 
 		// Touch (relative or absolute)
 		if (touch) {
