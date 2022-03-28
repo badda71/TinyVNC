@@ -1587,6 +1587,7 @@ int main() {
 	touchPosition touch;
 	accelVector accel;
 	angularRate gyro;
+	float slider3d = 0.0;
 
 	osSetSpeedupEnable(1);
 
@@ -1746,6 +1747,7 @@ int main() {
 				hidCircleRead(&posCp);
 				irrstCstickRead(&posStk);
 				hidTouchRead(&touch);
+				if (config.ctr_udp_enable) slider3d = osGet3DSliderState();
 				if ((config.ctr_udp_enable && config.ctr_udp_motion) || config.ctr_dsu_enable) {
 					hidAccelRead(&accel);
 					hidGyroRead(&gyro);
@@ -1753,9 +1755,9 @@ int main() {
 			}
 			if (config.ctr_udp_enable) {
 				if (config.ctr_udp_motion)
-					vjoy_udp_client_update(&udpclient, kHeld, &posCp, &posStk, &touch, &accel, &gyro);
+					vjoy_udp_client_update(&udpclient, kHeld, &posCp, &posStk, &touch, &accel, &gyro, slider3d);
 				else
-					vjoy_udp_client_update(&udpclient, kHeld, &posCp, &posStk, &touch, NULL, NULL);
+					vjoy_udp_client_update(&udpclient, kHeld, &posCp, &posStk, &touch, NULL, NULL, slider3d);
 			}
 			if (config.ctr_dsu_enable &&
 				(dsu_server_run(&dsuserver) ||

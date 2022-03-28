@@ -42,5 +42,6 @@ extern int vjoy_udp_client_update(
 	circlePosition *posStk,
 	touchPosition *touch,
 	accelVector *accel,
-	angularRate *gyro);
+	angularRate *gyro,
+	float slider);
 extern int vjoy_udp_client_shutdown(struct vjoy_udp_client *client);

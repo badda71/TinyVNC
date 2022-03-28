@@ -176,7 +176,8 @@ int vjoy_udp_client_update(	// all parameters can be NULL except client
 	circlePosition *posStk,
 	touchPosition *touch,
 	accelVector *accel,
-	angularRate *gyro)
+	angularRate *gyro,
+	float slider)
 {
 	static struct vjoy_packet oldp = {0};
 	static u64 lastupdate = 0;
@@ -194,6 +195,7 @@ int vjoy_udp_client_update(	// all parameters can be NULL except client
 		int gyro_x;
 		int gyro_y;
 		int gyro_z;
+		float slider;
 		int accel_x;
 		int accel_y;
 		int accel_z;
@@ -229,6 +231,7 @@ int vjoy_udp_client_update(	// all parameters can be NULL except client
 		}
 		oldstate = buttons & KEY_TOUCH;
 	}
+	data.slider += slider;
 	if (gyro) {
 		data.gyro_x += gyro->x;
 		data.gyro_y += gyro->y;
@@ -300,6 +303,9 @@ int vjoy_udp_client_update(	// all parameters can be NULL except client
 			}
 		}
 
+		//Slider
+		newp.wSlider = (u32)((data.slider / count) * 0x8000);
+		
 		// Accelerometer
 		if (accel) {
 			newp.wAxisXAccel = vjoy_udp_client_transform(data.accel_x / count, client->coeffs.acc_deadzone, client->coeffs.acc_max, client->coeffs.acc_threshold, 0x8000, 1);
