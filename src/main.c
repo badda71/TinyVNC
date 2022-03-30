@@ -52,6 +52,7 @@ typedef struct {
 	int ctr_udp_motion;
 	int ctr_dsu_enable;
 	int ctr_dsu_port;
+	int ctr_udp_motion_port;
 } vnc_config;
 
 static vnc_config default_config = {
@@ -79,7 +80,8 @@ static vnc_config default_config = {
 	.ctr_udp_port = 1608,
 	.ctr_udp_motion = 0,
 	.ctr_dsu_enable = 0,
-	.ctr_dsu_port = 26760
+	.ctr_dsu_port = 26760,
+	.ctr_udp_motion_port = 1609
 };
 
 typedef struct {
@@ -855,6 +857,7 @@ enum {
 	EDITCONF_CTRUDPENABLE,
 	EDITCONF_CTRUDPPORT,
 	EDITCONF_CTRUDPMOTION,
+	EDITCONF_CTRUDPMOTIONPORT,
 	EDITCONF_CTRDSUENABLE,
 	EDITCONF_CTRDSUPORT,
 	EDITCONF_END
@@ -1057,9 +1060,16 @@ static int editconfig(vnc_config *c) {
 					uib_set_position(0,++l);
 					uib_printf(nc.ctr_udp_motion?"\x91 ":"\x90 ");
 					if (sel == EDITCONF_CTRUDPMOTION) uib_invert_colors();
-					uib_printf(	"Send motion data to vJoy-UDP-Feeder" );
+					uib_printf(	"Send motion data to 2nd vJoy-Feeder" );
 					if (sel == EDITCONF_CTRUDPMOTION) uib_reset_colors();					
-				} else l+=2;
+					if (nc.ctr_udp_motion) {
+						uib_set_position(0,++l);
+						uib_printf(	"2nd vJoy-UDP-Feeder Port: ");
+						if (sel == EDITCONF_CTRUDPMOTIONPORT)uib_invert_colors();
+						uib_printf(	"%-14d", nc.ctr_udp_motion_port);
+						if (sel == EDITCONF_CTRUDPMOTIONPORT) uib_reset_colors();
+					} else l+=1;
+				} else l+=3;
 				++l;
 				uib_set_position(0,++l);
 				uib_printf(nc.ctr_dsu_enable?"\x91 ":"\x90 ");
@@ -1137,6 +1147,7 @@ static int editconfig(vnc_config *c) {
 						if (!nc.enableaudio && sel==EDITCONF_AUDIOPORT) sel=EDITCONF_CTRVNCKEYS;
 						if (!nc.ctr_udp_enable && sel==EDITCONF_CTRUDPPORT) sel=EDITCONF_CTRDSUENABLE;
 						if (!nc.ctr_dsu_enable && sel==EDITCONF_CTRDSUPORT) sel=0;
+						if (!nc.ctr_udp_motion && sel==EDITCONF_CTRUDPMOTIONPORT) sel=EDITCONF_CTRDSUENABLE;
 					}
 					upd = 1;
 					break;
@@ -1154,8 +1165,9 @@ static int editconfig(vnc_config *c) {
 					} else if (page == 1) {
 						if (sel < EDITCONF_ENABLEAUDIO) sel = 0;
 						if (!nc.enableaudio && sel==EDITCONF_AUDIOPATH) sel=EDITCONF_ENABLEAUDIO;
-						if (!nc.ctr_udp_enable && sel==EDITCONF_CTRUDPMOTION) sel=EDITCONF_CTRUDPENABLE;
+						if (!nc.ctr_udp_enable && sel==EDITCONF_CTRUDPMOTIONPORT) sel=EDITCONF_CTRUDPENABLE;
 						if (!nc.ctr_dsu_enable && sel==EDITCONF_CTRDSUPORT) sel=EDITCONF_CTRDSUENABLE;
+						if (!nc.ctr_udp_motion && sel==EDITCONF_CTRUDPMOTIONPORT) sel=EDITCONF_CTRUDPMOTION;
 					}
 					upd = 1;
 					break;
@@ -1312,6 +1324,20 @@ static int editconfig(vnc_config *c) {
 						break;
 					case EDITCONF_CTRUDPMOTION:
 						nc.ctr_udp_motion = !nc.ctr_udp_motion;
+						break;
+					case EDITCONF_CTRUDPMOTIONPORT:
+						swkbdInit(&swkbd, SWKBD_TYPE_NUMPAD, 2, 5);
+						swkbdSetHintText(&swkbd, "2nd vJoy-UDP-Feeder Port");
+						sprintf(input, "%d", nc.ctr_udp_motion_port);
+						swkbdSetInitialText(&swkbd, input);
+						//swkbdSetFeatures(&swkbd, SWKBD_DEFAULT_QWERTY);
+						button = swkbdInputText(&swkbd, input, 6);
+						if(button != SWKBD_BUTTON_LEFT) {
+							int po = atoi(input);
+							if (po <= 0) po=1;
+							if (po > 0xffff) po=0xffff;
+							nc.ctr_udp_motion_port = po;
+						}
 						break;
 					case EDITCONF_CTRDSUENABLE:
 						nc.ctr_dsu_enable = !nc.ctr_dsu_enable;
@@ -1685,7 +1711,7 @@ int main() {
 
 		if (config.ctr_udp_enable) {
 			// init UDP client
-			if (vjoy_udp_client_init(&udpclient, config.host, config.ctr_udp_port))
+			if (vjoy_udp_client_init(&udpclient, config.host, config.ctr_udp_port, config.ctr_udp_motion?config.ctr_udp_motion_port:0))
 				rfbClientErr("vJoy-UDP-feeder client error: %s", udpclient.lasterrmsg);
 			else {
 				//udpclient.mouse_relative = 1;

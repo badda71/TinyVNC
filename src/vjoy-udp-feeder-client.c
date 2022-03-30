@@ -31,16 +31,9 @@ struct vjoy_packet {
 	u32 lButtons;	// kHeld
 	u32 contPov;	// calculated continuous C-Stick Position
 	u32 discPovs;	// discrete C-Stick Position
-	// below custom values - not passed to vjoy by vJoyUDPFeeder, might be used by different UDP2Joy implementation
-	u32 wAxisXAccel;
-	u32 wAxisYAccel;
-	u32 wAxisZAccel;
-	u32 wAxisXGyro;
-	u32 wAxisYGyro;
-	u32 wAxisZGyro;
 };
 
-int vjoy_udp_client_init(struct vjoy_udp_client *client, char *hostname, int port)
+int vjoy_udp_client_init(struct vjoy_udp_client *client, char *hostname, int port, int motionport)
 {
 	bzero(client, sizeof(*client));
 	client->socket = -1;
@@ -54,32 +47,29 @@ int vjoy_udp_client_init(struct vjoy_udp_client *client, char *hostname, int por
 	bzero(&hints, sizeof(hints));
 	hints.ai_family = AF_INET;    /* Allow IPv4 or IPv6 */
 	hints.ai_socktype = SOCK_DGRAM; /* Datagram socket */
-	hints.ai_flags = 0;
-	hints.ai_protocol = 0;          /* Any protocol */
 
-	s = getaddrinfo(hostname, itoa(port, buf, 10), &hints, &result);
-	if (s != 0) {
+	if ((s = getaddrinfo(hostname, itoa(port, buf, 10), &hints, &result)) != 0) {
 		snprintf(client->lasterrmsg, VJOY_UDP_ERRMSG_LENGTH, "getaddrinfo: %s", gai_strerror(s));
 		client->lasterrno = s;
 		return -1;
 	}
 
 	for (rp = result; rp != NULL; rp = rp->ai_next) {
-		sfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-		if (sfd == -1) continue;
-
-		if (connect(sfd, rp->ai_addr, rp->ai_addrlen) != -1)
-			break;                  /* Success */
-
-		close(sfd);
+		if ((sfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol)) != -1) break;
 	}
 
-	if (rp == NULL) {               /* No address succeeded */
-		snprintf(client->lasterrmsg, VJOY_UDP_ERRMSG_LENGTH, "Could not connect");
+	if (rp == NULL) {
+		snprintf(client->lasterrmsg, VJOY_UDP_ERRMSG_LENGTH, "No such address");
 		client->lasterrno = errno;
 		return -1;
 	}
+
 	client->socket = sfd;
+	client->addr1 = *((struct sockaddr_in*)rp->ai_addr);
+	if (motionport > 0) {
+		client->addr2 = client->addr1;
+		client->addr2.sin_port = htons(motionport);
+	}
 	freeaddrinfo(result);           /* No longer needed */
 	
 	// default meta button is select
@@ -101,24 +91,24 @@ int vjoy_udp_client_init(struct vjoy_udp_client *client, char *hostname, int por
 	client->coeffs.cs_max = 100;
 	client->coeffs.cs_threshold = 0;	
 
-	client->coeffs.acc_deadzone = 20;
-	client->coeffs.acc_max= 900;
+	client->coeffs.acc_deadzone = 0;
+	client->coeffs.acc_max= 1000; // about 2g
 	client->coeffs.acc_threshold = 10;
 
-	client->coeffs.gy_deadzone = 20;
-	client->coeffs.gy_max= 900;
+	client->coeffs.gy_deadzone = 0;
+	client->coeffs.gy_max= 3600;  // about 360deg/sec
 	client->coeffs.gy_threshold = 10;
 
 	return 0;
 }
 
-static int vjoy_udp_client_sendUDP(struct vjoy_udp_client *client, void *data, int size)
+static int vjoy_udp_client_sendUDP(struct vjoy_udp_client *client, void *data, int size, struct sockaddr_in *addr)
 {
 	int ret;
 	if (client->socket < 0) {
 		return -1;
 	}
-	ret=send(client->socket, data, size, 0);
+	ret=sendto(client->socket, data, size, 0, (struct sockaddr*)addr, sizeof(*addr));
 	return ret;
 }
 
@@ -180,6 +170,7 @@ int vjoy_udp_client_update(	// all parameters can be NULL except client
 	float slider)
 {
 	static struct vjoy_packet oldp = {0};
+	static struct vjoy_packet oldmp = {0};
 	static u64 lastupdate = 0;
 	static int count = 0;
 	static struct {
@@ -201,6 +192,7 @@ int vjoy_udp_client_update(	// all parameters can be NULL except client
 		int accel_z;
 	} data = {0};
 	struct vjoy_packet newp = {0}, sendp = {0};
+	struct vjoy_packet newmp = {0}, sendmp = {0};
 
 	// collect data until we trigger an update
 	data.buttons |= buttons;
@@ -305,20 +297,6 @@ int vjoy_udp_client_update(	// all parameters can be NULL except client
 
 		//Slider
 		newp.wSlider = (u32)((data.slider / count) * 0x8000);
-		
-		// Accelerometer
-		if (accel) {
-			newp.wAxisXAccel = vjoy_udp_client_transform(data.accel_x / count, client->coeffs.acc_deadzone, client->coeffs.acc_max, client->coeffs.acc_threshold, 0x8000, 1);
-			newp.wAxisYAccel = vjoy_udp_client_transform(data.accel_y / count, client->coeffs.acc_deadzone, client->coeffs.acc_max, client->coeffs.acc_threshold, 0x8000, 1);
-			newp.wAxisZAccel = vjoy_udp_client_transform(data.accel_z / count, client->coeffs.acc_deadzone, client->coeffs.acc_max, client->coeffs.acc_threshold, 0x8000, 1);
-		}
-
-		// Gyro
-		if (gyro) {
-			newp.wAxisXGyro = vjoy_udp_client_transform(data.gyro_x / count, client->coeffs.gy_deadzone, client->coeffs.gy_max, client->coeffs.gy_threshold, 0x8000, 1);
-			newp.wAxisYGyro = vjoy_udp_client_transform(data.gyro_y / count, client->coeffs.gy_deadzone, client->coeffs.gy_max, client->coeffs.gy_threshold, 0x8000, 1);
-			newp.wAxisZGyro = vjoy_udp_client_transform(data.gyro_z / count, client->coeffs.gy_deadzone, client->coeffs.gy_max, client->coeffs.gy_threshold, 0x8000, 1);
-		}
 
 		// Buttons
 		u32 nbut = 0;
@@ -335,6 +313,23 @@ int vjoy_udp_client_update(	// all parameters can be NULL except client
 		}
 		newp.lButtons = nbut;
 
+		// motion packet **************************************
+		// Accelerometer
+		if (client->addr2.sin_port) {
+			if (accel) {
+				newmp.wAxisX = vjoy_udp_client_transform(data.accel_x / count, client->coeffs.acc_deadzone, client->coeffs.acc_max, client->coeffs.acc_threshold, 0x8000, 1);
+				newmp.wAxisY = vjoy_udp_client_transform(data.accel_y / count, client->coeffs.acc_deadzone, client->coeffs.acc_max, client->coeffs.acc_threshold, 0x8000, 1);
+				newmp.wAxisZ = vjoy_udp_client_transform(data.accel_z / count, client->coeffs.acc_deadzone, client->coeffs.acc_max, client->coeffs.acc_threshold, 0x8000, 1);
+			}
+
+			// Gyro
+			if (gyro) {
+				newmp.wAxisXRot = vjoy_udp_client_transform(data.gyro_x / count, client->coeffs.gy_deadzone, client->coeffs.gy_max, client->coeffs.gy_threshold, 0x8000, 1);
+				newmp.wAxisYRot = vjoy_udp_client_transform(data.gyro_y / count, client->coeffs.gy_deadzone, client->coeffs.gy_max, client->coeffs.gy_threshold, 0x8000, 1);
+				newmp.wAxisZRot = vjoy_udp_client_transform(data.gyro_z / count, client->coeffs.gy_deadzone, client->coeffs.gy_max, client->coeffs.gy_threshold, 0x8000, 1);
+			}
+		}
+
 		count = 0;
 		bzero(&data, sizeof(data));
 
@@ -346,7 +341,17 @@ int vjoy_udp_client_update(	// all parameters can be NULL except client
 			for (int i=0; i < sizeof(newp)/sizeof(int); i++) {
 				i2[i]=htonl(i1[i]);
 			}
-			return vjoy_udp_client_sendUDP(client, &sendp, sizeof(sendp));
+			vjoy_udp_client_sendUDP(client, &sendp, sizeof(sendp), &client->addr1);
+		}
+		// do we have anythign new to send? (Motion data)
+		if (client->addr2.sin_port && memcmp(&newmp, &oldmp, sizeof(newmp))) {
+			memcpy(&oldmp, &newmp, sizeof(newmp));
+			// send
+			int *i1 = (int*)&newmp; int *i2 = (int*)&sendmp;
+			for (int i=0; i < sizeof(newmp)/sizeof(int); i++) {
+				i2[i]=htonl(i1[i]);
+			}
+			vjoy_udp_client_sendUDP(client, &sendmp, sizeof(sendmp), &client->addr2);
 		}
 	}
 	return 0;

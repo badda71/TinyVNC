@@ -25,6 +25,8 @@ struct vjoy_udp_coeffs {
 
 struct vjoy_udp_client {
 	int socket;
+	struct sockaddr_in addr1;	// for button / joy / touch data
+	struct sockaddr_in addr2;	// for motion data
 	char lasterrmsg[VJOY_UDP_ERRMSG_LENGTH];
 	int lasterrno;
 	struct vjoy_udp_coeffs coeffs;
@@ -34,7 +36,7 @@ struct vjoy_udp_client {
 	int interval; // in which intervals (ms) should we send new data to the server? (default 75)
 };
 
-extern int vjoy_udp_client_init(struct vjoy_udp_client *client, char *hostname, int port);
+extern int vjoy_udp_client_init(struct vjoy_udp_client *client, char *hostname, int port, int motionport);
 extern int vjoy_udp_client_update(
 	struct vjoy_udp_client *client,
 	u32 buttons,
