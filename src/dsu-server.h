@@ -1,6 +1,8 @@
 /*
+Cemuhook Server implementation for N3DS
+(c) 2022 Sebastian Weber
+
 https://v1993.github.io/cemuhook-protocol/ 
-https://github.com/yuk27/BetterJoyForDolphin/blob/master/BetterJoyForDolphin/UpdServer.cs
 */
 
 #define DSU_ERRMSG_LENGTH 128

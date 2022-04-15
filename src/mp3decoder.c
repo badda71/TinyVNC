@@ -1,3 +1,11 @@
+/*
+ * TinyVNC - A VNC client for Nintendo 3DS
+ *
+ * mp3decoder.c - functions for handling mp3 decoding
+ *
+ * Copyright 2020 Sebastian Weber
+ */
+
 #include <mpg123.h>
 #include <string.h>
 #include "decoder.h"

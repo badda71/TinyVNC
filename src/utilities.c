@@ -1,4 +1,12 @@
-#include <3ds.h>
+/*
+ * TinyVNC - A VNC client for Nintendo 3DS
+ *
+ * utilities.c - utility functions
+ *
+ * Copyright 2020 Sebastian Weber
+ */
+ 
+ #include <3ds.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>

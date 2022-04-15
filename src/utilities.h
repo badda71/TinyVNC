@@ -1,3 +1,10 @@
+/*
+ * TinyVNC - A VNC client for Nintendo 3DS
+ *
+ * utilities.h - utility functions
+ *
+ * Copyright 2020 Sebastian Weber
+ */
 #ifndef _UTILITIES_H
 #define _UTILITIES_H
 

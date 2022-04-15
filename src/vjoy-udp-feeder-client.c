@@ -18,19 +18,19 @@ https://github.com/klach/vjoy-udp-feeder
 struct vjoy_packet {
 	// Valid value for Axis/Slider/Dial members are in range 0x0001 – 0x8000
 	// lButtons: Valid value is range 0x00000000 (all 32 buttons are unset) to 0xFFFFFFFF (all buttons are set). The least-significant-bit representing the lower-number button (e.g. button #1).
-	// contPov: Valid value is either 0xFFFFFFFF (neutral) or in the range of 0 to 35999
+	// contPov: Valid value is either 0xFFFFFFFF (neutral) or in the range of 0 to 35999 (= degrees * 100, 0° = north)
 	// discPovs: The lowest nibble is used for switch #1, the second nibble for switch #2, the third nibble for switch #3 and the highest nibble for switch #4. Each nibble supports one of the following values: 0x0 North (forward), 0x1 East (right), 0x2 South (backwards), 0x3 West (Left), 0xF Neutral
 	u32 wAxisX;		// posCp.dx
 	u32 wAxisY;		// posCp.dy
-	u32 wAxisZ;		
+	u32 wAxisZ;		// touch.px
 	u32 wAxisXRot;	// posStk.dx
 	u32 wAxisYRot;	// posStk.dy
-	u32 wAxisZRot;
-	u32 wSlider;	// touch.px
-	u32 wDial;		// touch.py
+	u32 wAxisZRot;	// touch.py
+	u32 wSlider;	// slider
+	u32 wDial;
 	u32 lButtons;	// kHeld
 	u32 contPov;	// calculated continuous C-Stick Position
-	u32 discPovs;	// discrete C-Stick Position
+	u32 discPovs;	// discrete C-Stick Position on #1, D-Pad Pos on #2
 };
 
 int vjoy_udp_client_init(struct vjoy_udp_client *client, char *hostname, int port, int motionport)
@@ -169,8 +169,7 @@ int vjoy_udp_client_update(	// all parameters can be NULL except client
 	angularRate *gyro,
 	float slider)
 {
-	static struct vjoy_packet oldp = {0};
-	static struct vjoy_packet oldmp = {0};
+	static struct vjoy_packet oldp = {0}, oldmp = {0};
 	static u64 lastupdate = 0;
 	static int count = 0;
 	static struct {
@@ -191,6 +190,7 @@ int vjoy_udp_client_update(	// all parameters can be NULL except client
 		int accel_y;
 		int accel_z;
 	} data = {0};
+
 	struct vjoy_packet newp = {0}, sendp = {0};
 	struct vjoy_packet newmp = {0}, sendmp = {0};
 
@@ -236,9 +236,10 @@ int vjoy_udp_client_update(	// all parameters can be NULL except client
 	}
 	++count;
 
+	// are we done collecting data? - if yes, prepare the data for vjoy feed and send
 	u64 now = getmicrotime();
 	if (!lastupdate) lastupdate = now;
-	if (now - lastupdate > client->interval) { // done collecting data - now send!
+	if (now - lastupdate > client->interval) {
 		lastupdate = now;
 
 		// C-Pad
@@ -333,7 +334,7 @@ int vjoy_udp_client_update(	// all parameters can be NULL except client
 		count = 0;
 		bzero(&data, sizeof(data));
 
-		// do we have anythign new to send?
+		// do we have anything new to send?
 		if (memcmp(&newp, &oldp, sizeof(newp))) {
 			memcpy(&oldp, &newp, sizeof(newp));
 			// send
@@ -343,7 +344,7 @@ int vjoy_udp_client_update(	// all parameters can be NULL except client
 			}
 			vjoy_udp_client_sendUDP(client, &sendp, sizeof(sendp), &client->addr1);
 		}
-		// do we have anythign new to send? (Motion data)
+		// do we have anything new to send? (Motion data)
 		if (client->addr2.sin_port && memcmp(&newmp, &oldmp, sizeof(newmp))) {
 			memcpy(&oldmp, &newmp, sizeof(newmp));
 			// send

@@ -1,3 +1,8 @@
+/*
+Client to vJoy-UDP-Feeder for N3DS
+https://github.com/klach/vjoy-udp-feeder
+(c) 2022 Sebastian Weber
+*/
 #include <3ds.h>
 
 #ifndef SGN
