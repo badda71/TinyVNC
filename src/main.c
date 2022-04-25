@@ -418,7 +418,7 @@ static struct {
 	{"CSTCK_RIGHT",			BUT_CSRIGHT,	XK_l	},
 	{"A_META",				BUT_A_M,		XK_A	},
 	{"B_META",				BUT_B_M,		XK_B	},
-	{"X_META",				BUT_X_M,		7		},	// toggle touch event target
+	{"X_META",				BUT_X_M,		XK_X	},
 	{"Y_META",				BUT_Y_M,		XK_Y	},
 	{"SELECT_META",			BUT_SELECT_M,	1		},	// meta
 	{"START_META",			BUT_START_M,	3		},	// disconnect
@@ -1569,7 +1569,7 @@ static void readkeymaps(char *cname) {
 				"# 7 = toggle touch/button events target (top or bottom)\n"
 				"# 16-20 = mouse button 1-5 (16=left, 17=middle, 18=right, 19=wheelup, 20=wheeldown)\n\n"
 			);
-			for (i=1; buttons3ds[i].name != NULL; ++i) {
+			for (i=0; buttons3ds[i].name != NULL; ++i) {
 				fprintf(f,"%s\t%s0x%04X\n",
 					buttons3ds[i].name,
 					buttons3ds[i].rfb_key < 0 ? "-" : "",
