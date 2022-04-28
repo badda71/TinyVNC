@@ -143,7 +143,7 @@ static void vwrite_log(const char *format, va_list arg, int channel)
 		vsnprintf(buf, i+1, format, arg);
 		while (i && buf[i-1]=='\n') buf[--i]=0; // strip trailing newlines
 		if (channel & 2) svcOutputDebugString(buf, i);
-		if (channel & 1 && !config.hidelog) {
+		if (channel & 1) {
 			uib_printf("%s\n",buf);
 			uib_update(UIB_RECALC_MENU);
 			SDL_Flip(sdl);
@@ -383,6 +383,7 @@ enum buttons {
 
 enum commands {
 	COM_SHIFT = 1,
+	COM_QMENU,
 	COM_KEYBOARD,
 	COM_DISCONNECT,
 	COM_TOPSCALING,
@@ -405,8 +406,8 @@ static struct {
 	{"B",					BUT_B,			XK_b	},
 	{"X",					BUT_X,			XK_x	},
 	{"Y",					BUT_Y,			XK_y	},
-	{"SELECT",				BUT_SELECT,		COM_SHIFT},	// shift key
-	{"START",				BUT_START,		XK_Return},
+	{"SELECT",				BUT_SELECT,		COM_SHIFT},
+	{"START",				BUT_START,		COM_QMENU},
 	{"L",					BUT_L,			XK_q	},
 	{"R",					BUT_R,			XK_w	},
 	{"ZL",					BUT_ZL,			XK_1	},
@@ -427,8 +428,8 @@ static struct {
 	{"B_SHIFT",				BUT_B_S,		XK_B	},
 	{"X_SHIFT",				BUT_X_S,		XK_X	},
 	{"Y_SHIFT",				BUT_Y_S,		XK_Y	},
-	{"SELECT_SHIFT",		BUT_SELECT_S,	COM_SHIFT},	// shift
-	{"START_SHIFT",			BUT_START_S,	COM_DISCONNECT}, // disconnect
+	{"SELECT_SHIFT",		BUT_SELECT_S,	COM_SHIFT},
+	{"START_SHIFT",			BUT_START_S,	COM_DISCONNECT},
 	{"L_SHIFT",				BUT_L_S,		XK_Q	},
 	{"R_SHIFT",				BUT_R_S,		XK_W	},
 	{"ZL_SHIFT",			BUT_ZL_S,		XK_3	},
@@ -563,7 +564,7 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 	static float xf=0.0,yf=0.0;
 	static int shift = 0;
 	
-	int s;
+	int s=0;
 	map_joy_to_key(e);
 
 	switch(e->type) {
@@ -679,21 +680,70 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 	}
 	case SDL_KEYUP:
 	case SDL_KEYDOWN:
-		if (e->key.keysym.sym < (SDLKey)BUT_END) {
-			if (e->key.keysym.sym + shift < BUT_END_S)
-				s=rfbkeys[e->key.keysym.sym + shift];
-			else
-				s=XK_VoidSymbol;
+		if (uib_qmenu_active) {
+			if (e->type == SDL_KEYDOWN) {
+				switch ((enum buttons)e->key.keysym.sym) {
+					case BUT_A:
+						s = COM_DISCONNECT; break;
+					case BUT_DPUP:
+						s = COM_TOPSCALING; break;
+					case BUT_DPDOWN:
+						s = COM_BOTSCALING; break;
+					case BUT_DPRIGHT:
+						s = COM_EVENTTARGET; break;
+					case BUT_DPLEFT:
+						config.notaphandling = !config.notaphandling;
+						uib_show_message(3000,"Bottom tap handling turned %s",config.notaphandling?"off":"on");
+						break;
+					case BUT_X:
+						config.hidelog = !config.hidelog;
+						uib_enable_log(!config.hidelog);
+						break;
+					case BUT_Y:
+						config.hidekb = !config.hidekb;
+						if (cl || cl2) uib_enable_keyboard(!config.hidekb);
+						break;
+					case BUT_SELECT:
+						s = COM_BACKLIGHT; break;
+					case BUT_L:
+						config.ctr_vnc_keys = !config.ctr_vnc_keys;
+						uib_show_message(3000,"Keys to VNC connection %s",config.ctr_vnc_keys?"on":"off");
+						break;
+					case BUT_R:
+						config.ctr_vnc_touch = !config.ctr_vnc_touch;
+						uib_show_message(3000,"Mouse to VNC connection %s",config.ctr_vnc_touch?"on":"off");
+						break;
+					default:
+						break;
+				}
+				uib_qmenu_active = 0;
+				uib_update(UIB_REPAINT);
+			}
+			if (!s) break;
 		} else {
-			s = e->key.keysym.sym;
+			if (e->key.keysym.sym < (SDLKey)BUT_END) {
+				if (e->key.keysym.sym + shift < BUT_END_S)
+					s=rfbkeys[e->key.keysym.sym + shift];
+				else
+					s=XK_VoidSymbol;
+			} else {
+				s = e->key.keysym.sym;
+			}
 		}
-log_citra("got a key%s: %d", e->type==SDL_KEYUP?"up":"down", s);
+		//log_citra("got a key%s: %d", e->type==SDL_KEYUP?"up":"down", s);
 
 		if (s == COM_SHIFT) {				// shift key
 			shift = e->type == SDL_KEYDOWN ? 32 : 0;
 			break;
 		} else if (s == COM_KEYBOARD) {		// toggle keyboard
-			toggle_keyboard();
+			if (e->type == SDL_KEYDOWN) {
+				toggle_keyboard();
+			}
+			break;
+		} else if (s == COM_QMENU) {		// toggle quick menu
+			if (e->type == SDL_KEYDOWN) {
+				uib_qmenu_show();
+			}
 			break;
 		} else if (s == COM_DISCONNECT) {		// disconnect
 			return 0;
@@ -1582,6 +1632,7 @@ static void readkeymaps(char *cname) {
 			fprintf(f,
 				"# values as per https://libvnc.github.io/doc/html/keysym_8h_source.html\n"
 				"# %d = shift button\n"
+				"# %d = show quick command menu\n"
 				"# %d = toggle keyboard\n"
 				"# %d = disconnect\n"
 				"# %d = toggle top screen scaling\n"
@@ -1589,7 +1640,7 @@ static void readkeymaps(char *cname) {
 				"# %d = toggle bottom screen backlight\n"
 				"# %d = toggle touch/button events target (top or bottom)\n"
 				"# %d-%d = mouse button 1-5 (%d=left, %d=middle, %d=right, %d=wheelup, %d=wheeldown)\n\n",
-				COM_SHIFT, COM_KEYBOARD, COM_DISCONNECT, COM_TOPSCALING, COM_BOTSCALING, COM_BACKLIGHT, COM_EVENTTARGET,
+				COM_SHIFT, COM_QMENU, COM_KEYBOARD, COM_DISCONNECT, COM_TOPSCALING, COM_BOTSCALING, COM_BACKLIGHT, COM_EVENTTARGET,
 				COM_MOUSELEFT, COM_MOUSEWHEELDOWN, COM_MOUSELEFT, COM_MOUSEMID, COM_MOUSERIGHT, COM_MOUSEWHEELUP, COM_MOUSEWHEELDOWN
 			);
 			for (i=0; buttons3ds[i].name != NULL; ++i) {
@@ -1660,6 +1711,7 @@ int main() {
 	rfbClientErr=log_err;
 
 	uib_enable_keyboard(0);
+	uib_enable_log(1);
 	uib_init();
 	aptHook(&cookie, aptHookFunc, NULL);
 
@@ -1722,6 +1774,7 @@ int main() {
 		}
 			
 		if (!config.hidekb && (cl || cl2)) uib_enable_keyboard(1);
+		uib_enable_log(!config.hidelog);
 		if (!cl && cl2) config.eventtarget = 1;
 		if (!cl && !cl2) config.ctr_vnc_keys = config.ctr_vnc_touch = 0;
 
@@ -1890,6 +1943,7 @@ int main() {
 		cleanup();
 
 		uib_enable_keyboard(0);
+		uib_enable_log(1);
 		uib_setBacklight(1);
 		if (!ext) { // means, we exited due to an error
 			uib_set_colors(COL_BLACK, HEADERCOL);

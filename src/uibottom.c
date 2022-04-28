@@ -139,6 +139,8 @@ static DS3_Image keymask_spr;
 // dynamic sprites
 static DS3_Image message_spr;
 static DS3_Image menu_spr;
+static DS3_Image menu_spr;
+static DS3_Image qmenu_spr;
 static DS3_Image whitepixel_spr;
 static DS3_Image blackpixel_spr;
 static DS3_Image uibvnc_spr;
@@ -153,6 +155,7 @@ int uibvnc_w=320;
 int uibvnc_h=240;
 int uibvnc_x=0;
 int uibvnc_y=0;
+int uib_qmenu_active=0;
 
 // static variables
 static u8* uibvnc_buffer = NULL;
@@ -167,6 +170,7 @@ static int kb_activekey=-1;
 static int sticky=0;
 static unsigned char keysPressed[256];
 static int kb_enabled = 0;
+static int log_enabled = 0;
 static int uib_x=0, uib_y=0;
 static SDL_Color txt_col = DEF_TXT_COL;
 static SDL_Color bck_col = DEF_BCK_COL;
@@ -189,6 +193,9 @@ extern void SDL_RequestCall(void(*callback)(void*), void *param);
 	GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO))
 
 #define TEX_MIN_SIZE 64
+
+#define QMENU_WIDTH 256
+#define QMENU_HEIGHT 128
 
 // key repeat functions for the simulated key repeat
 static int keydown = 0;
@@ -443,6 +450,11 @@ static void uib_repaint(void *param) {
 		else
 			messagetime = 0;
 	}
+	
+	// paint qmenu
+	if (uib_qmenu_active) {
+		drawImage(&qmenu_spr,((400-QMENU_WIDTH)*160)/400,(240-QMENU_HEIGHT)/2,(QMENU_WIDTH*320)/400,QMENU_HEIGHT,0);
+	}
 
 	if (svcWaitSynchronization(repaintRequired, 0)) return;
 	svcClearEvent(repaintRequired);
@@ -463,7 +475,7 @@ static void uib_repaint(void *param) {
 			drawImage(&blackpixel_spr, 320-SCROLLBAR_WIDTH, 0, SCROLLBAR_WIDTH, 240, 0);
 			drawImage(&whitepixel_spr, 320-SCROLLBAR_WIDTH, (-uibvnc_y*240)/uibvnc_h, SCROLLBAR_WIDTH, (240*240)/uibvnc_h, 0);
 		}
-	} else { 
+	} else if (log_enabled) {
 		// menu
 		int y = kb_enabled ? MIN(0,-240 + kb_y_pos + (29-uib_y) * 8) : 0;
 		drawImage(&menu_spr, 0, y, 0, 0, 0);
@@ -601,6 +613,11 @@ static void anim_callback(void *param) {
 
 void uib_enable_keyboard(int enable) {
 	kb_enabled=enable;
+	requestRepaint();
+}
+
+void uib_enable_log(int enable) {
+	log_enabled=enable;
 	requestRepaint();
 }
 
@@ -1338,4 +1355,43 @@ rfbBool uibvnc_resize(rfbClient* client) {
 
 void uibvnc_setScaling(int scaling) {
 	uibvnc_scaling=scaling;
+}
+
+void uib_qmenu_show() {
+	static int qmenu_isinit = 0;
+	if (!qmenu_isinit) {
+		// init menusurface
+		SDL_Surface *s = menu_img;
+		menu_img = 	SDL_CreateRGBSurface(SDL_SWSURFACE,QMENU_WIDTH,QMENU_HEIGHT,32,0x000000ff,0x0000ff00,0x00ff0000,0xff000000);
+		SDL_FillRect(menu_img, NULL, SDL_MapRGBA(menu_img->format,0,0,0,0));
+		// print menu
+		uib_set_position(0,0);
+		uib_set_colors((SDL_Color){0xff,0xff,0xff,0}, (SDL_Color){0,0,0,128});
+		uib_printf(
+		"\x0D" "\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B"
+		"\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B"
+		"\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B" "\x0E\n"
+		"\x0C \xF2   "       "Disconnect              " " \x0C\n"
+		"\x0C \xF6   "       "Toggle Top Scaling      " " \x0C\n"
+		"\x0C \xF8   "       "Toggle Bottom Scaling   " " \x0C\n"
+		"\x0C \xF7   "       "Toggle Event Target     " " \x0C\n"
+		"\x0C \xF9   "       "Toggle Tap Gestures     " " \x0C\n"
+		"\x0C \xF4   "       "Toggle Show Log         " " \x0C\n"
+		"\x0C \xF5   "       "Toggle Show Keyboard    " " \x0C\n"
+		"\x0C \xFD\xFE\xFF " "Toggle Bottom Backlight " " \x0C\n"
+		"\x0C \xF0   "       "Toggle Keys to VNC      " " \x0C\n"
+		"\x0C \xF1   "       "Toggle Mouse to VNC     " " \x0C\n"
+		"\x0C \xF3   "       "Exit Menu               " " \x0C\n"
+		"\x0F" "\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B"
+		"\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B"
+		"\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B" "\x10\n"
+		);
+		uib_reset_colors();
+		makeImage(&qmenu_spr, menu_img->pixels, menu_img->w, menu_img->h, 0);
+		SDL_FreeSurface(menu_img);
+		menu_img = s;
+		qmenu_isinit = 1;
+	}
+	uib_qmenu_active = 1;
+	uib_update(UIB_REPAINT);
 }

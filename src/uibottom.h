@@ -63,6 +63,7 @@ extern int uib_handle_event(SDL_Event *, int taphandling);
 extern void uib_init();
 extern int uib_handle_tap_processing(SDL_Event *e);
 extern void uib_enable_keyboard(int enable);
+extern void uib_enable_log(int enable);
 extern void uib_show_scrollbars(int x, int y, int w, int h);
 #define SCROLLBAR_WIDTH 2
 extern int uib_getBacklight();
@@ -71,9 +72,11 @@ extern void toggle_keyboard();
 
 extern rfbBool uibvnc_resize(rfbClient*);
 extern void uibvnc_cleanup();
-void uibvnc_setScaling(int);
+extern void uibvnc_setScaling(int);
+extern void uib_qmenu_show();
 
 // exposed variables
+extern int uib_qmenu_active;
 extern uikbd_key uikbd_keypos[];
 extern uib_action uib_must_redraw;
 #endif
