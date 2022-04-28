@@ -355,40 +355,47 @@ enum buttons {
 	BUT_CSDOWN,
 	BUT_CSLEFT,
 	BUT_CSRIGHT,
-	BUT_A_M = 33,
-	BUT_B_M,
-	BUT_X_M,
-	BUT_Y_M,
-	BUT_SELECT_M,
-	BUT_START_M,
-	BUT_L_M,
-	BUT_R_M,
-	BUT_ZL_M,
-	BUT_ZR_M,
-	BUT_DPUP_M,
-	BUT_DPDOWN_M,
-	BUT_DPLEFT_M,
-	BUT_DPRIGHT_M,
-	BUT_CPUP_M,
-	BUT_CPDOWN_M,
-	BUT_CPLEFT_M,
-	BUT_CPRIGHT_M,
-	BUT_CSUP_M,
-	BUT_CSDOWN_M,
-	BUT_CSLEFT_M,
-	BUT_CSRIGHT_M,
-	BUT_END
+	BUT_END,
+	BUT_A_S = 33,
+	BUT_B_S,
+	BUT_X_S,
+	BUT_Y_S,
+	BUT_SELECT_S,
+	BUT_START_S,
+	BUT_L_S,
+	BUT_R_S,
+	BUT_ZL_S,
+	BUT_ZR_S,
+	BUT_DPUP_S,
+	BUT_DPDOWN_S,
+	BUT_DPLEFT_S,
+	BUT_DPRIGHT_S,
+	BUT_CPUP_S,
+	BUT_CPDOWN_S,
+	BUT_CPLEFT_S,
+	BUT_CPRIGHT_S,
+	BUT_CSUP_S,
+	BUT_CSDOWN_S,
+	BUT_CSLEFT_S,
+	BUT_CSRIGHT_S,
+	BUT_END_S
 };
 
-// default key mappings ===============================================================
-// values as per https://libvnc.github.io/doc/html/keysym_8h_source.html
-// 1 = meta button
-// 2 = toggle keyboard
-// 3 = disconnect
-// 4 = toggle topscreen scaling
-// 5 = toggle bottom screen backlight
-// 6 = toggle touch events target (top or bottom)
-// 16-20 = mouse button 1-5 (16=left, 17=middle, 18=right, 19=wheelup, 20=wheeldown)
+enum commands {
+	COM_SHIFT = 1,
+	COM_KEYBOARD,
+	COM_DISCONNECT,
+	COM_TOPSCALING,
+	COM_BOTSCALING,
+	COM_BACKLIGHT,
+	COM_EVENTTARGET,
+	COM_MOUSELEFT = 16,
+	COM_MOUSEMID,
+	COM_MOUSERIGHT,
+	COM_MOUSEWHEELUP,
+	COM_MOUSEWHEELDOWN
+};
+
 static struct {
 	char *name;
 	int sdl_key;
@@ -398,7 +405,7 @@ static struct {
 	{"B",					BUT_B,			XK_b	},
 	{"X",					BUT_X,			XK_x	},
 	{"Y",					BUT_Y,			XK_y	},
-	{"SELECT",				BUT_SELECT,		1		},	// meta key
+	{"SELECT",				BUT_SELECT,		COM_SHIFT},	// shift key
 	{"START",				BUT_START,		XK_Return},
 	{"L",					BUT_L,			XK_q	},
 	{"R",					BUT_R,			XK_w	},
@@ -416,28 +423,28 @@ static struct {
 	{"CSTCK_DOWN",			BUT_CSDOWN,		XK_k	},
 	{"CSTCK_LEFT",			BUT_CSLEFT,		XK_j	},
 	{"CSTCK_RIGHT",			BUT_CSRIGHT,	XK_l	},
-	{"A_META",				BUT_A_M,		XK_A	},
-	{"B_META",				BUT_B_M,		XK_B	},
-	{"X_META",				BUT_X_M,		XK_X	},
-	{"Y_META",				BUT_Y_M,		XK_Y	},
-	{"SELECT_META",			BUT_SELECT_M,	1		},	// meta
-	{"START_META",			BUT_START_M,	3		},	// disconnect
-	{"L_META",				BUT_L_M,		XK_Q	},
-	{"R_META",				BUT_R_M,		XK_W	},
-	{"ZL_META",				BUT_ZL_M,		XK_3	},
-	{"ZR_META",				BUT_ZR_M,		XK_4	},
-	{"DPAD_UP_META",		BUT_DPUP_M,		XK_T	},
-	{"DPAD_DOWN_META",		BUT_DPDOWN_M,	XK_G	},
-	{"DPAD_LEFT_META",		BUT_DPLEFT_M,	XK_F	},
-	{"DPAD_RIGHT_META",		BUT_DPRIGHT_M,	XK_H	},
-	{"CPAD_UP_META",		BUT_CPUP_M,		XK_Up	},
-	{"CPAD_DOWN_META",		BUT_CPDOWN_M,	XK_Down	},
-	{"CPAD_LEFT_META",		BUT_CPLEFT_M,	XK_Left	},
-	{"CPAD_RIGHT_META",		BUT_CPRIGHT_M,	XK_Right},
-	{"CSTCK_UP_META",		BUT_CSUP_M,		XK_I	},
-	{"CSTCK_DOWN_META",		BUT_CSDOWN_M,	XK_K	},
-	{"CSTCK_LEFT_META",		BUT_CSLEFT_M,	XK_J	},
-	{"CSTCK_RIGHT_META",	BUT_CSRIGHT_M,	XK_L	},
+	{"A_SHIFT",				BUT_A_S,		XK_A	},
+	{"B_SHIFT",				BUT_B_S,		XK_B	},
+	{"X_SHIFT",				BUT_X_S,		XK_X	},
+	{"Y_SHIFT",				BUT_Y_S,		XK_Y	},
+	{"SELECT_SHIFT",		BUT_SELECT_S,	COM_SHIFT},	// shift
+	{"START_SHIFT",			BUT_START_S,	COM_DISCONNECT}, // disconnect
+	{"L_SHIFT",				BUT_L_S,		XK_Q	},
+	{"R_SHIFT",				BUT_R_S,		XK_W	},
+	{"ZL_SHIFT",			BUT_ZL_S,		XK_3	},
+	{"ZR_SHIFT",			BUT_ZR_S,		XK_4	},
+	{"DPAD_UP_SHIFT",		BUT_DPUP_S,		XK_T	},
+	{"DPAD_DOWN_SHIFT",		BUT_DPDOWN_S,	XK_G	},
+	{"DPAD_LEFT_SHIFT",		BUT_DPLEFT_S,	XK_F	},
+	{"DPAD_RIGHT_SHIFT",	BUT_DPRIGHT_S,	XK_H	},
+	{"CPAD_UP_SHIFT",		BUT_CPUP_S,		XK_Up	},
+	{"CPAD_DOWN_SHIFT",		BUT_CPDOWN_S,	XK_Down	},
+	{"CPAD_LEFT_SHIFT",		BUT_CPLEFT_S,	XK_Left	},
+	{"CPAD_RIGHT_SHIFT",	BUT_CPRIGHT_S,	XK_Right},
+	{"CSTCK_UP_SHIFT",		BUT_CSUP_S,		XK_I	},
+	{"CSTCK_DOWN_SHIFT",	BUT_CSDOWN_S,	XK_K	},
+	{"CSTCK_LEFT_SHIFT",	BUT_CSLEFT_S,	XK_J	},
+	{"CSTCK_RIGHT_SHIFT",	BUT_CSRIGHT_S,	XK_L	},
 	{NULL,0,0}
 };
 
@@ -554,7 +561,7 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 {
 	// pointer positions
 	static float xf=0.0,yf=0.0;
-	static int meta = 0;
+	static int shift = 0;
 	
 	int s;
 	map_joy_to_key(e);
@@ -672,18 +679,25 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 	}
 	case SDL_KEYUP:
 	case SDL_KEYDOWN:
-		s =  (e->key.keysym.sym < 32)?
-			((e->key.keysym.sym + meta < BUT_END) ? rfbkeys[e->key.keysym.sym + meta] : XK_VoidSymbol):
-			e->key.keysym.sym;
-		if (s == 1) {				// meta key
-			meta = e->type == SDL_KEYDOWN ? 32 : 0;
+		if (e->key.keysym.sym < (SDLKey)BUT_END) {
+			if (e->key.keysym.sym + shift < BUT_END_S)
+				s=rfbkeys[e->key.keysym.sym + shift];
+			else
+				s=XK_VoidSymbol;
+		} else {
+			s = e->key.keysym.sym;
+		}
+log_citra("got a key%s: %d", e->type==SDL_KEYUP?"up":"down", s);
+
+		if (s == COM_SHIFT) {				// shift key
+			shift = e->type == SDL_KEYDOWN ? 32 : 0;
 			break;
-		} else if (s == 2) {		// toggle keyboard
+		} else if (s == COM_KEYBOARD) {		// toggle keyboard
 			toggle_keyboard();
 			break;
-		} else if (s == 3) {		// disconnect
+		} else if (s == COM_DISCONNECT) {		// disconnect
 			return 0;
-		} else if (s == 4) {		// toggle top screen scaling
+		} else if (s == COM_TOPSCALING) {		// toggle top screen scaling
 			if (e->type == SDL_KEYDOWN) {
 				config.scaling = !config.scaling;
 				uib_show_message(3000,"Top screen scaling %s",config.scaling?"on":"off");
@@ -693,7 +707,7 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 				}
 			}
 			break;
-		} else if (s == 5) {		// toggle bottom screen scaling
+		} else if (s == COM_BOTSCALING) {		// toggle bottom screen scaling
 			if (e->type == SDL_KEYDOWN) {
 				config.scaling2 = !config.scaling2;
 				uib_show_message(3000,"Bottom screen scaling %s",config.scaling2?"on":"off");
@@ -703,14 +717,14 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 				}
 			}
 			break;
-		} else if (s == 6) {		// toggle bottom screen backlight
+		} else if (s == COM_BACKLIGHT) {		// toggle bottom screen backlight
 			if (e->type == SDL_KEYDOWN) {
 				int i=uib_getBacklight();
 				uib_setBacklight(!i);
 				uib_show_message(3000,"Bottom screen backlight %s",i?"off":"on");
 			}
 			break;
-		} else if (s == 7) {		// toggle touch event target
+		} else if (s == COM_EVENTTARGET) {		// toggle touch event target
 			if (cl2 && cl && e->type == SDL_KEYDOWN) {
 				config.eventtarget = !config.eventtarget;
 				uib_show_message(3000,"Event target = %s",config.eventtarget?"botton":"top");
@@ -722,8 +736,8 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 			break;
 		}
 		if (viewOnly) break;
-		if (s>15 && s<21) {			// mouse button 1-5: 16-20
-			record_mousebutton_event(s-15, e->type == SDL_KEYDOWN?1:0);
+		if (s>=COM_MOUSELEFT && s<=COM_MOUSEWHEELDOWN) {			// mouse button 1-5: COM_MOUSELEFT-COM_MOUSEWHEELDOWN
+			record_mousebutton_event(s-COM_MOUSELEFT+1, e->type == SDL_KEYDOWN?1:0);
 			if (config.ctr_vnc_touch) SendPointerEvent((cl2 && config.eventtarget)?cl2:cl, x, y, buttonMask);
 			buttonMask &= ~(rfbButton4Mask | rfbButton5Mask); // clear wheel up and wheel down state
 		} else {
@@ -1540,19 +1554,26 @@ static void readkeymaps(char *cname) {
 		strcpy(p, keymap_filename);
 		sprintf(strrchr(p,'/'),"/%s.keymap", cname);
 	}
-	if( (p && (f=fopen(p, "r"))!=NULL && (fn=p)) ||
-		((f=fopen(keymap_filename, "r"))!=NULL && (fn=(char*)keymap_filename))) {
+	if (p && (f=fopen(p, "r"))!=NULL) fn=p;
+	else if ((f=fopen(keymap_filename, "r"))!=NULL) fn=(char*)keymap_filename;
+	if (f) {
 		rfbClientLog("Reading keymap from %s", fn);
 		while (fgets(buf, BUFSIZE, f)) {
 			if (buf[0]=='#' || sscanf(buf,"%s %x\n",name, &x) != 2) continue;
 			for (i=0; buttons3ds[i].name != NULL; ++i) {
-				if (strcmp(buttons3ds[i].name, name)==0 && buttons3ds[i].sdl_key < BUT_END) {
-					rfbkeys[buttons3ds[i].sdl_key] = x;
-					break;
-				}
+				if (strcmp(buttons3ds[i].name, name)) continue;
+				rfbkeys[buttons3ds[i].sdl_key] = x;
+				break;
 			}
+			if (buttons3ds[i].name == NULL)
+				rfbClientLog("Warning: %s invalid", name);
 		}
 		fclose(f);
+
+		// validate keymap
+		for (i=0; i<64; i++)
+			if (rfbkeys[i] == COM_SHIFT)
+				rfbkeys[i ^ 0x20] = COM_SHIFT;
 	} else {
 		// save default keymap
 		if ((f=fopen(keymap_filename, "w"))!=NULL) {
@@ -1560,14 +1581,16 @@ static void readkeymaps(char *cname) {
 
 			fprintf(f,
 				"# values as per https://libvnc.github.io/doc/html/keysym_8h_source.html\n"
-				"# 1 = meta button\n"
-				"# 2 = toggle keyboard\n"
-				"# 3 = disconnect\n"
-				"# 4 = toggle top screen scaling\n"
-				"# 5 = toggle bottom screen scaling\n"
-				"# 6 = toggle bottom screen backlight\n"
-				"# 7 = toggle touch/button events target (top or bottom)\n"
-				"# 16-20 = mouse button 1-5 (16=left, 17=middle, 18=right, 19=wheelup, 20=wheeldown)\n\n"
+				"# %d = shift button\n"
+				"# %d = toggle keyboard\n"
+				"# %d = disconnect\n"
+				"# %d = toggle top screen scaling\n"
+				"# %d = toggle bottom screen scaling\n"
+				"# %d = toggle bottom screen backlight\n"
+				"# %d = toggle touch/button events target (top or bottom)\n"
+				"# %d-%d = mouse button 1-5 (%d=left, %d=middle, %d=right, %d=wheelup, %d=wheeldown)\n\n",
+				COM_SHIFT, COM_KEYBOARD, COM_DISCONNECT, COM_TOPSCALING, COM_BOTSCALING, COM_BACKLIGHT, COM_EVENTTARGET,
+				COM_MOUSELEFT, COM_MOUSEWHEELDOWN, COM_MOUSELEFT, COM_MOUSEMID, COM_MOUSERIGHT, COM_MOUSEWHEELUP, COM_MOUSEWHEELDOWN
 			);
 			for (i=0; buttons3ds[i].name != NULL; ++i) {
 				fprintf(f,"%s\t%s0x%04X\n",
@@ -1741,7 +1764,30 @@ int main() {
 		int evtarget = 10, taphandling = 1;
 
 		if (!active) rfbClientErr("Noting to do ...");
-		else log_color(HEADERCOL, COL_BLACK, "Press SELECT + START to stop");
+		else {
+			// do we have a disconnect shortcut?
+			char *shift=NULL, *but=NULL;
+			int s=0;
+			for (i=0; i<64; ++i) {
+				if (rfbkeys[i] == COM_DISCONNECT) {
+					s=i & 0x1F;
+					for (int ii=0; buttons3ds[ii].name != NULL; ++ii) {
+						if (buttons3ds[ii].sdl_key == s && !but) but = buttons3ds[ii].name;
+					}
+					if (i & 0x20) {
+						for (int ii=0; buttons3ds[ii].name != NULL; ++ii) {
+							if (buttons3ds[ii].rfb_key == COM_SHIFT && !shift) shift=buttons3ds[ii].name;
+						}
+						if (!shift) but=NULL;
+					}
+					break;
+				}
+			}
+			if (but)
+				log_color(HEADERCOL, COL_BLACK, "Press %s%s%s to stop", shift?shift:"", shift?" + ":"", but);
+			else
+				log_color(HEADERCOL, COL_BLACK, "Press HOME to exit");
+		}
 
 		while(active) {
 			// set up event handling
