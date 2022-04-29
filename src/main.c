@@ -680,6 +680,8 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 	}
 	case SDL_KEYUP:
 	case SDL_KEYDOWN:
+//		rfbClientLog("got a key%s: %d", e->type==SDL_KEYUP?"up":"down", e->key.keysym.sym);
+
 		if (uib_qmenu_active) {
 			if (e->type == SDL_KEYDOWN) {
 				switch ((enum buttons)e->key.keysym.sym) {
@@ -706,12 +708,16 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 					case BUT_SELECT:
 						s = COM_BACKLIGHT; break;
 					case BUT_L:
-						config.ctr_vnc_keys = !config.ctr_vnc_keys;
-						uib_show_message(3000,"Keys to VNC connection %s",config.ctr_vnc_keys?"on":"off");
+						if (cl || cl2) {
+							config.ctr_vnc_keys = !config.ctr_vnc_keys;
+							uib_show_message(3000,"Keys to VNC connection %s",config.ctr_vnc_keys?"on":"off");
+						}
 						break;
 					case BUT_R:
-						config.ctr_vnc_touch = !config.ctr_vnc_touch;
-						uib_show_message(3000,"Mouse to VNC connection %s",config.ctr_vnc_touch?"on":"off");
+						if (cl || cl2) {
+							config.ctr_vnc_touch = !config.ctr_vnc_touch;
+							uib_show_message(3000,"Mouse to VNC connection %s",config.ctr_vnc_touch?"on":"off");
+						}
 						break;
 					default:
 						break;
@@ -730,7 +736,6 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 				s = e->key.keysym.sym;
 			}
 		}
-		//log_citra("got a key%s: %d", e->type==SDL_KEYUP?"up":"down", s);
 
 		if (s == COM_SHIFT) {				// shift key
 			shift = e->type == SDL_KEYDOWN ? 32 : 0;
@@ -746,6 +751,7 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 			}
 			break;
 		} else if (s == COM_DISCONNECT) {		// disconnect
+			shift = 0;
 			return 0;
 		} else if (s == COM_TOPSCALING) {		// toggle top screen scaling
 			if (e->type == SDL_KEYDOWN) {
