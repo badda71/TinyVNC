@@ -399,7 +399,7 @@ static struct {
 	{"Y",					BUT_Y,			XK_y	},
 	{"SELECT",				BUT_SELECT,		COM_SHIFT},
 	{"START",				BUT_START,		COM_QMENU},
-	{"L",					BUT_L,			XK_q	},
+	{"L",					BUT_L,			COM_MOUSERIGHT},
 	{"R",					BUT_R,			XK_w	},
 	{"ZL",					BUT_ZL,			XK_1	},
 	{"ZR",					BUT_ZR,			XK_2	},
