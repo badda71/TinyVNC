@@ -229,7 +229,8 @@ static rfbBool resize(rfbClient* client) {
 				rfbClientErr("%s: SendScaleSetting failed", __func__);
 				return FALSE;
 			}
-			rfbClientLog("size >1024px, set server scale 1/%d", client->appData.scaleSetting);
+			width = MIN(width, 1024); height = MIN(height, 1024);
+			rfbClientLog("req size >1024px, set server scale 1/%d", client->appData.scaleSetting);
 		} else {
 			// set client side scaling
 			scaling_factor_top = (MAX(width,height) + 1024) / 1024;
@@ -252,17 +253,7 @@ static rfbBool resize(rfbClient* client) {
 				oldGotFrameBufferUpdate = client->GotFrameBufferUpdate;
 				client->GotFrameBufferUpdate = handleFrameBufferUpdateTop;
 			}
-			rfbClientLog("size >1024px, set client scale 1/%d", scaling_factor_top);
-		}
-		if (!SendFramebufferUpdateRequest(client,
-			client->updateRect.x / client->appData.scaleSetting,
-			client->updateRect.y / client->appData.scaleSetting,
-			client->updateRect.w / client->appData.scaleSetting,
-			client->updateRect.h / client->appData.scaleSetting,
-			FALSE))
-		{
-			rfbClientErr("%s: SendFramebufferUpdateRequest failed", __func__);
-			return FALSE;
+			rfbClientLog("req size >1024px, set client scale 1/%d", scaling_factor_top);
 		}
 	}
 	client->updateRect.x = client->updateRect.y = 0;
