@@ -554,9 +554,7 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 	// pointer positions
 	static float xf=0.0,yf=0.0;
 	static int shift = 0;
-	
 	int s=0;
-	map_joy_to_key(e);
 
 	switch(e->type) {
 	case SDL_MOUSEBUTTONUP:
@@ -845,6 +843,46 @@ mkpath_err:
 	free(file_path);
 	return 1;
 }
+
+static int msgbox(char *msg) {
+	SDL_Event e;
+	int len = MAX(14,MIN (30, strlen(msg)));
+	char *lines="\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B\x0B";
+	char *spaces="                              ";
+	uib_set_position((40-len-4)/2,11);
+	uib_printf("\x0D%.*s\x0E", len+2, lines);
+	uib_set_position((40-len-4)/2,12);
+	uib_printf("\x0C %.*s \x0C", len, msg);
+	uib_set_position((40-len-4)/2,13);
+	uib_printf("\x0C%.*s\x0C", len+2, spaces);
+	uib_set_position((40-len-4)/2,14);
+	uib_printf("\x0C%.*s\x0C", len+2, spaces);
+	uib_set_position((40-14)/2,14);
+	uib_printf("\xF2 OK  \xF3 Cancel");
+	uib_set_position((40-len-4)/2,15);
+	uib_printf("\x0F%.*s\x10", len+2, lines);
+	uib_update(UIB_RECALC_MENU);
+
+	while(1) {
+		SDL_Flip(sdl);
+		while (SDL_PollEvent(&e)) {
+			if (uib_handle_event(&e, 0)) continue;
+			if (e.type == SDL_QUIT)
+				safeexit();
+			map_joy_to_key(&e);
+			if (e.type == SDL_KEYDOWN) {
+				switch ((enum buttons)e.key.keysym.sym) {
+				case BUT_A:
+					return 1;
+				case BUT_B:
+					return 0;
+				default:
+					break;
+				}
+			}
+		}
+	}
+};
 
 static void printlist(int num) {
 	char buf[41];
@@ -1538,7 +1576,9 @@ static int getconfig(vnc_config *c) {
 					upd = 1;
 					break;
 				case BUT_X:
-					conf[sel] = default_config;
+					if (msgbox("Really delete entry?")) {
+						conf[sel] = default_config;
+					}
 					upd = 1;
 					break;
 				case BUT_R:
@@ -1854,6 +1894,9 @@ int main() {
 			checkKeyRepeat();
 			while (SDL_PollEvent(&e)) {
 				if (uib_handle_event(&e, taphandling | (evtarget ? 2 : 0 ))) continue;
+				if (e.type == SDL_QUIT)
+					safeexit();
+				map_joy_to_key(&e);
 				if(!handleSDLEvent(&e)) {
 					rfbClientLog("Disconnecting");
 					ext=1;
@@ -1952,6 +1995,8 @@ int main() {
 				checkKeyRepeat();
 				if (SDL_PollEvent(&e)) {
 					if (uib_handle_event(&e, 0)) continue;
+					if (e.type == SDL_QUIT)
+						safeexit();
 					map_joy_to_key(&e);
 					if (e.type == SDL_KEYDOWN) {
 						if ((enum buttons)e.key.keysym.sym == BUT_A)
