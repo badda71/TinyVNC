@@ -319,6 +319,7 @@ static void cleanup()
 	if (sdl_big)
 		SDL_FreeSurface(sdl_big);
 	sdl_big = NULL;
+	SDL_ResetVideoPosition();
 
 	uibvnc_cleanup();
 }
