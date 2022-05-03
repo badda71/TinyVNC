@@ -544,6 +544,13 @@ static void push_scheduled_event() {
 	}
 }
 
+static void checkconfig() {
+	if (!cl && cl2) config.eventtarget = 1;
+	if (!cl && !cl2) config.ctr_vnc_keys = config.ctr_vnc_touch = 0;
+	uib_enable_keyboard(!config.hidekb && (cl || cl2));
+	uib_enable_log(!config.hidelog);
+}
+
 extern int uibvnc_w, uibvnc_h, uibvnc_x, uibvnc_y;
 #define SCROLL_SIZE 20 // size of the scrolling arean in px
 #define SCROLL_SPEED 200 // max scrolling speed in px/sec
@@ -688,11 +695,11 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 						break;
 					case BUT_X:
 						config.hidelog = !config.hidelog;
-						uib_enable_log(!config.hidelog);
+						checkconfig();
 						break;
 					case BUT_Y:
 						config.hidekb = !config.hidekb;
-						if (cl || cl2) uib_enable_keyboard(!config.hidekb);
+						checkconfig();
 						break;
 					case BUT_SELECT:
 						s = COM_BACKLIGHT; break;
@@ -745,20 +752,20 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 		} else if (s == COM_TOPSCALING) {		// toggle top screen scaling
 			if (e->type == SDL_KEYDOWN) {
 				config.scaling = !config.scaling;
-				uib_show_message(3000,"Top screen scaling %s",config.scaling?"on":"off");
 				if (cl) {
 					resize(cl);
 					SendFramebufferUpdateRequest(cl, 0, 0, cl->updateRect.w, cl->updateRect.h, FALSE);
+					uib_show_message(3000,"Top screen scaling %s",config.scaling?"on":"off");
 				}
 			}
 			break;
 		} else if (s == COM_BOTSCALING) {		// toggle bottom screen scaling
 			if (e->type == SDL_KEYDOWN) {
 				config.scaling2 = !config.scaling2;
-				uib_show_message(3000,"Bottom screen scaling %s",config.scaling2?"on":"off");
 				if (cl2) {
 					uibvnc_resize(cl2);
 					SendFramebufferUpdateRequest(cl2, 0, 0, cl2->updateRect.w, cl2->updateRect.h, FALSE);
+					uib_show_message(3000,"Bottom screen scaling %s",config.scaling2?"on":"off");
 				}
 			}
 			break;
@@ -1809,11 +1816,6 @@ int main() {
 				cl2 = NULL; // rfbInitClient has already freed the client struct
 			} else ++active;
 		}
-			
-		if (!config.hidekb && (cl || cl2)) uib_enable_keyboard(1);
-		uib_enable_log(!config.hidelog);
-		if (!cl && cl2) config.eventtarget = 1;
-		if (!cl && !cl2) config.ctr_vnc_keys = config.ctr_vnc_touch = 0;
 
 		if (config.enableaudio) {
 			snprintf(buf, sizeof(buf),"http://%s:%d%s%s",config.host, config.audioport,
@@ -1847,6 +1849,7 @@ int main() {
 			HIDUSER_EnableAccelerometer();
 			HIDUSER_EnableGyroscope();
 		}
+		checkconfig();
 
 		// clear mouse state
 		buttonMask = 0;
@@ -1947,25 +1950,18 @@ int main() {
 					rfbClientCleanup(cl);
 					cl=NULL;
 					--active;
+					checkconfig();
 				}
 			}
 			if (cl2) {
 				i=WaitForMessage(cl2,10);
-				if(i<0) {
-					rfbClientErr("BottomVNC: error waiting for messages");				
+				if(i<0 || (i>0 && !HandleRFBServerMessage(cl2))) {
+					rfbClientErr("BottomVNC: error waiting for or processing messages");
 					rfbClientCleanup(cl2);
 					cl2=NULL;
 					--active;
-				}
-				if (i) {
-					if (HandleRFBServerMessage(cl2)) {uib_update(UIB_RECALC_VNC);
-					} else {
-						rfbClientErr("BottomVNC: error processing messages");
-						rfbClientCleanup(cl2);
-						cl2=NULL;
-						--active;
-					}
-				}
+					checkconfig();
+				} else if (i>0) uib_update(UIB_RECALC_VNC);
 			}
 		}
 		// cleanup udp client / dsu server
