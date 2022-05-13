@@ -131,6 +131,7 @@ static int sdl_pos_x, sdl_pos_y;
 static vnc_config config;
 static int have_scrollbars=0;
 aptHookCookie cookie;
+static int recalc_event_target = 0;
 
 extern void SDL_SetVideoPosition(int x, int y);
 extern void SDL_ResetVideoPosition();
@@ -382,6 +383,7 @@ enum commands {
 	COM_BOTSCALING,
 	COM_BACKLIGHT,
 	COM_EVENTTARGET,
+	COM_TAPHANDLING,
 	COM_MOUSELEFT = 16,
 	COM_MOUSEMID,
 	COM_MOUSERIGHT,
@@ -635,6 +637,8 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 							});
 						}
 					}
+					// update bottom screen
+					uib_update(UIB_REPAINT);
 				} else {
 //log_citra("scrolling off");
 					scrolling = 0;
@@ -691,9 +695,7 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 					case BUT_DPRIGHT:
 						s = COM_EVENTTARGET; break;
 					case BUT_DPLEFT:
-						config.notaphandling = !config.notaphandling;
-						uib_show_message(3000,"Bottom tap handling turned %s",config.notaphandling?"off":"on");
-						break;
+						s = COM_TAPHANDLING; break;
 					case BUT_X:
 						config.hidelog = !config.hidelog;
 						checkconfig();
@@ -764,6 +766,7 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 			if (e->type == SDL_KEYDOWN) {
 				config.scaling2 = !config.scaling2;
 				if (cl2) {
+					uibvnc_setScaling(config.scaling2);
 					uibvnc_resize(cl2);
 					SendFramebufferUpdateRequest(cl2, 0, 0, cl2->updateRect.w, cl2->updateRect.h, FALSE);
 					uib_show_message(3000,"Bottom screen scaling %s",config.scaling2?"on":"off");
@@ -780,11 +783,15 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 		} else if (s == COM_EVENTTARGET) {		// toggle touch event target
 			if (cl2 && cl && e->type == SDL_KEYDOWN) {
 				config.eventtarget = !config.eventtarget;
+				recalc_event_target = 1;
 				uib_show_message(3000,"Event target = %s",config.eventtarget?"botton":"top");
-				if (cl->appData.useRemoteCursor != config.eventtarget) {
-					cl->appData.useRemoteCursor = config.eventtarget;
-					SetFormatAndEncodings(cl);
-				}
+			}
+			break;
+		} else if (s == COM_TAPHANDLING) {
+			if (cl2  && e->type == SDL_KEYDOWN) {
+				config.notaphandling = !config.notaphandling;
+				recalc_event_target = 1;
+				uib_show_message(3000,"Bottom tap handling turned %s",config.notaphandling?"off":"on");
 			}
 			break;
 		}
@@ -1808,7 +1815,6 @@ int main() {
 			cl2->canHandleNewFBSize = TRUE;
 			cl2->GetCredential = get_credential;
 			cl2->GetPassword = get_password;
-			cl2->appData.useRemoteCursor = TRUE; // never show cursor on bottom screen, just like a touch screen
 			uibvnc_setScaling(config.scaling2);
 			snprintf(buf, sizeof(buf),"%s:%d",config.host, config.port2);
 			rfbClientLog("Connecting2 to %s", buf);
@@ -1882,13 +1888,25 @@ int main() {
 			else
 				log_color(HEADERCOL, COL_BLACK, "Press HOME to exit");
 		}
+		recalc_event_target=1;
 
 		while(active) {
 			// set up event handling
-			if (evtarget != (cl2!=NULL && config.eventtarget!=0)) {
+			if (recalc_event_target) {
 				evtarget = (cl2!=NULL && config.eventtarget!=0);
-				if (cl) cl->appData.useRemoteCursor = evtarget;
 				taphandling = evtarget ? !config.notaphandling : 1;
+				int i = evtarget;
+				if (cl && cl->appData.useRemoteCursor != i) {
+					cl->appData.useRemoteCursor = i;
+					SetFormatAndEncodings(cl);
+				}
+				i = !(evtarget && taphandling);
+				if (cl2 && cl2->appData.useRemoteCursor != i) {
+					cl2->appData.useRemoteCursor = i;
+					SetFormatAndEncodings(cl2);
+				}
+				//if (cl) cl->appData.useRemoteCursor = evtarget;
+				recalc_event_target = 0;
 			}
 			// handle events
 			if (taphandling)
@@ -1950,6 +1968,7 @@ int main() {
 					rfbClientErr("VNC: error waiting for or processing messages");				
 					rfbClientCleanup(cl);
 					cl=NULL;
+					recalc_event_target = 1;
 					--active;
 					checkconfig();
 				}
@@ -1960,6 +1979,7 @@ int main() {
 					rfbClientErr("BottomVNC: error waiting for or processing messages");
 					rfbClientCleanup(cl2);
 					cl2=NULL;
+					recalc_event_target = 1;
 					--active;
 					checkconfig();
 				} else if (i>0) uib_update(UIB_RECALC_VNC);
