@@ -384,6 +384,10 @@ enum commands {
 	COM_BACKLIGHT,
 	COM_EVENTTARGET,
 	COM_TAPHANDLING,
+	COM_TOGGLELOG,
+	COM_TOGGLEKEYBOARD,
+	COM_KEYSTOVNC,
+	COM_TOUCHTOVNC,
 	COM_MOUSELEFT = 16,
 	COM_MOUSEMID,
 	COM_MOUSERIGHT,
@@ -697,27 +701,15 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 					case BUT_DPLEFT:
 						s = COM_TAPHANDLING; break;
 					case BUT_X:
-						config.hidelog = !config.hidelog;
-						checkconfig();
-						break;
+						s = COM_TOGGLELOG; break;
 					case BUT_Y:
-						config.hidekb = !config.hidekb;
-						checkconfig();
-						break;
+						s = COM_TOGGLEKEYBOARD; break;
 					case BUT_SELECT:
 						s = COM_BACKLIGHT; break;
 					case BUT_L:
-						if (cl || cl2) {
-							config.ctr_vnc_keys = !config.ctr_vnc_keys;
-							uib_show_message(3000,"Keys to VNC connection %s",config.ctr_vnc_keys?"on":"off");
-						}
-						break;
+						s = COM_KEYSTOVNC; break;
 					case BUT_R:
-						if (cl || cl2) {
-							config.ctr_vnc_touch = !config.ctr_vnc_touch;
-							uib_show_message(3000,"Mouse to VNC connection %s",config.ctr_vnc_touch?"on":"off");
-						}
-						break;
+						s = COM_TOUCHTOVNC; break;
 					default:
 						break;
 				}
@@ -736,23 +728,24 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 			}
 		}
 
-		if (s == COM_SHIFT) {				// shift key
+		switch (s) {
+		case COM_SHIFT:
 			shift = e->type == SDL_KEYDOWN ? 32 : 0;
 			break;
-		} else if (s == COM_KEYBOARD) {		// toggle keyboard
+		case COM_KEYBOARD:
 			if (e->type == SDL_KEYDOWN) {
 				toggle_keyboard();
 			}
 			break;
-		} else if (s == COM_QMENU) {		// toggle quick menu
+		case COM_QMENU:
 			if (e->type == SDL_KEYDOWN) {
 				uib_qmenu_show();
 			}
 			break;
-		} else if (s == COM_DISCONNECT) {		// disconnect
+		case COM_DISCONNECT:
 			shift = 0;
 			return 0;
-		} else if (s == COM_TOPSCALING) {		// toggle top screen scaling
+		case COM_TOPSCALING:
 			if (e->type == SDL_KEYDOWN) {
 				config.scaling = !config.scaling;
 				if (cl) {
@@ -762,7 +755,7 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 				}
 			}
 			break;
-		} else if (s == COM_BOTSCALING) {		// toggle bottom screen scaling
+		case COM_BOTSCALING:
 			if (e->type == SDL_KEYDOWN) {
 				config.scaling2 = !config.scaling2;
 				if (cl2) {
@@ -773,35 +766,56 @@ static rfbBool handleSDLEvent(SDL_Event *e)
 				}
 			}
 			break;
-		} else if (s == COM_BACKLIGHT) {		// toggle bottom screen backlight
+		case COM_BACKLIGHT:
 			if (e->type == SDL_KEYDOWN) {
 				int i=uib_getBacklight();
 				uib_setBacklight(!i);
 				uib_show_message(3000,"Bottom screen backlight %s",i?"off":"on");
 			}
 			break;
-		} else if (s == COM_EVENTTARGET) {		// toggle touch event target
+		case COM_EVENTTARGET:
 			if (cl2 && cl && e->type == SDL_KEYDOWN) {
 				config.eventtarget = !config.eventtarget;
 				recalc_event_target = 1;
 				uib_show_message(3000,"Event target = %s",config.eventtarget?"botton":"top");
 			}
 			break;
-		} else if (s == COM_TAPHANDLING) {
+		case COM_TAPHANDLING:
 			if (cl2  && e->type == SDL_KEYDOWN) {
 				config.notaphandling = !config.notaphandling;
 				recalc_event_target = 1;
 				uib_show_message(3000,"Bottom tap handling turned %s",config.notaphandling?"off":"on");
 			}
 			break;
-		}
-		if (viewOnly) break;
-		if (s>=COM_MOUSELEFT && s<=COM_MOUSEWHEELDOWN) {			// mouse button 1-5: COM_MOUSELEFT-COM_MOUSEWHEELDOWN
-			record_mousebutton_event(s-COM_MOUSELEFT+1, e->type == SDL_KEYDOWN?1:0);
-			if (config.ctr_vnc_touch) SendPointerEvent((cl2 && config.eventtarget)?cl2:cl, x, y, buttonMask);
-			buttonMask &= ~(rfbButton4Mask | rfbButton5Mask); // clear wheel up and wheel down state
-		} else {
-			if (config.ctr_vnc_keys) SendKeyEvent((cl2 && config.eventtarget)?cl2:cl, s, e->type == SDL_KEYDOWN ? TRUE : FALSE);
+		case COM_TOGGLELOG:
+			config.hidelog = !config.hidelog;
+			checkconfig();
+			break;
+		case COM_TOGGLEKEYBOARD:
+			config.hidekb = !config.hidekb;
+			checkconfig();
+			break;
+		case COM_KEYSTOVNC:
+			if (cl || cl2) {
+				config.ctr_vnc_keys = !config.ctr_vnc_keys;
+				uib_show_message(3000,"Keys to VNC connection %s",config.ctr_vnc_keys?"on":"off");
+			}
+			break;
+		case COM_TOUCHTOVNC:
+			if (cl || cl2) {
+				config.ctr_vnc_touch = !config.ctr_vnc_touch;
+				uib_show_message(3000,"Mouse to VNC connection %s",config.ctr_vnc_touch?"on":"off");
+			}
+			break;
+		default:
+			if (viewOnly) break;
+			if (s>=COM_MOUSELEFT && s<=COM_MOUSEWHEELDOWN) {			// mouse button 1-5: COM_MOUSELEFT-COM_MOUSEWHEELDOWN
+				record_mousebutton_event(s-COM_MOUSELEFT+1, e->type == SDL_KEYDOWN?1:0);
+				if (config.ctr_vnc_touch) SendPointerEvent((cl2 && config.eventtarget)?cl2:cl, x, y, buttonMask);
+				buttonMask &= ~(rfbButton4Mask | rfbButton5Mask); // clear wheel up and wheel down state
+			} else {
+				if (config.ctr_vnc_keys) SendKeyEvent((cl2 && config.eventtarget)?cl2:cl, s, e->type == SDL_KEYDOWN ? TRUE : FALSE);
+			}
 		}
 		break;
 	case SDL_QUIT:
