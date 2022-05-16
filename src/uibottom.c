@@ -171,7 +171,7 @@ static int sticky=0;
 static unsigned char keysPressed[256];
 static int kb_enabled = 0;
 static int log_enabled = 0;
-static int uib_x=0, uib_y=0;
+static int uib_x=0, uib_y=0, nlines_pending = 0;
 static SDL_Color txt_col = DEF_TXT_COL;
 static SDL_Color bck_col = DEF_BCK_COL;
 static int top_scrollbars = 0;
@@ -729,6 +729,7 @@ void uib_show_message(u32 ms_time, char *format, ... ) {
 void uib_set_position(int x, int y) {
 	uib_x = x;
 	uib_y = y;
+	nlines_pending=0;
 }
 
 void uib_set_colors(SDL_Color text, SDL_Color background) {
@@ -782,6 +783,10 @@ int uib_vprintf(char *format, va_list arg) {
 		if (!end_line) end_line = line + strlen(line);
 		to_print = len = end_line - line;
 		while (to_print > 0) {
+			while (nlines_pending) {
+				uib_nextline();
+				--nlines_pending;
+			}
 			if (uib_x>=40) uib_nextline();
 			int i = MIN(to_print, 40-uib_x);
 			uib_printstring(menu_img, line + len - to_print, uib_x*8, uib_y*8, i, ALIGN_LEFT, txt_col, bck_col);
@@ -790,7 +795,7 @@ int uib_vprintf(char *format, va_list arg) {
 		}
 		// take care of newlines
 		while (*end_line == '\n') {
-			uib_nextline();
+			++nlines_pending;
 			++end_line;
 		}
 		line = end_line;
@@ -1371,6 +1376,7 @@ void uibvnc_setScaling(int scaling) {
 void uib_qmenu_show() {
 	static int qmenu_isinit = 0;
 	if (!qmenu_isinit) {
+		int ox = uib_x, oy = uib_y;
 		// init menusurface
 		SDL_Surface *s = menu_img;
 		menu_img = 	SDL_CreateRGBSurface(SDL_SWSURFACE,QMENU_WIDTH,QMENU_HEIGHT,32,0x000000ff,0x0000ff00,0x00ff0000,0xff000000);
@@ -1402,6 +1408,7 @@ void uib_qmenu_show() {
 		SDL_FreeSurface(menu_img);
 		menu_img = s;
 		qmenu_isinit = 1;
+		uib_x=ox; uib_y=oy;
 	}
 	uib_qmenu_active = 1;
 	uib_update(UIB_REPAINT);
