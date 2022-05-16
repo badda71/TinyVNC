@@ -72,7 +72,7 @@ uikbd_key uikbd_keypos[] = {
 	{ 270, 40,  20,  20,   XK_backslash,       XK_bar,   0,      1, "\\"},
 	{ 299, 40,  21,  20,        XK_Home,            0,   0,      1, "Home"},
 	// 4th Row
-	{   0, 60,  40,  20,     XK_Shift_L,            0,   1,      0, "CAPS"},
+	{   0, 60,  40,  20,  XK_Shift_Lock,            0,   1,      0, "CAPS"},
 	{  40, 60,  20,  20,           XK_a,         XK_A,   0,      1, "A"},
 	{  60, 60,  20,  20,           XK_s,         XK_S,   0,      1, "S"},
 	{  80, 60,  20,  20,           XK_d,         XK_D,   0,      1, "D"},
@@ -87,7 +87,7 @@ uikbd_key uikbd_keypos[] = {
 	{ 260, 60,  31,  20,      XK_Return,            0,   0,      1, "ENTER"},
 	{ 299, 60,  21,  20,         XK_End,            0,   0,      1, "End"},
 	// 5th Row
-	{   0, 80,  50,  20,     XK_Shift_L,            0,   1,      0, "LSHIFT"},
+	{   0, 80,  50,  20,     XK_Shift_L,            0,   2,      0, "LSHIFT"},
 	{  50, 80,  20,  20,           XK_z,         XK_Z,   0,      1, "Z"},
 	{  70, 80,  20,  20,           XK_x,         XK_X,   0,      1, "X"},
 	{  90, 80,  20,  20,           XK_c,         XK_C,   0,      1, "C"},
@@ -99,15 +99,15 @@ uikbd_key uikbd_keypos[] = {
 	{ 210, 80,  20,  20,      XK_period,   XK_greater,   0,      1, "."},
 	{ 230, 80,  20,  20,       XK_slash,  XK_question,   0,      1, "/"},
 	{ 250, 80,  20,  20,          XK_Up,            0,   0,      1, "C_UP"},
-	{ 270, 80,  21,  20,     XK_Shift_R,            0,   1,      0, "RSHIFT"},
+	{ 270, 80,  21,  20,     XK_Shift_R,            0,   4,      0, "RSHIFT"},
 	{ 299, 80,  21,  20,     XK_Page_Up,            0,   0,      1, "PG_UP"},
 	// 6th row
-	{   0,100,  20,  20,   XK_Control_L,            0,   2,      0, "LCTRL"},
-	{  20,100,  20,  20,     XK_Super_L,            0,   4,      0, "WIN"},
-	{  40,100,  20,  20,       XK_Alt_L,            0,   8,      0, "LALT"},
+	{   0,100,  20,  20,   XK_Control_L,            0,   8,      0, "LCTRL"},
+	{  20,100,  20,  20,     XK_Super_L,            0,  16,      0, "WIN"},
+	{  40,100,  20,  20,       XK_Alt_L,            0,  32,      0, "LALT"},
 	{  60,100, 130,  20,       XK_space,            0,   0,      1, "Space"},
-	{ 190,100,  20,  20,       XK_Alt_R,            0,   8,      0, "RALT"},
-	{ 210,100,  20,  20,   XK_Control_R,            0,   2,      0, "RCTRL"},
+	{ 190,100,  20,  20,       XK_Alt_R,            0,  64,      0, "RALT"},
+	{ 210,100,  20,  20,   XK_Control_R,            0, 128,      0, "RCTRL"},
 	{ 230,100,  20,  20,        XK_Left,            0,   0,      1, "C_LEFT"},
 	{ 250,100,  20,  20,        XK_Down,            0,   0,      1, "C_DOWN"},
 	{ 270,100,  21,  20,       XK_Right,            0,   0,      1, "C_RIGHT"},
@@ -1088,7 +1088,7 @@ int uib_handle_tap_processing(SDL_Event *e) {
 #define mylog2 __builtin_ctz
 
 int uib_handle_event(SDL_Event *e, int taphandling) {
-	static int sticky2keysym[4]={-1,-1,-1,-1};
+	static int sticky2keysym[8]={-1,-1,-1,-1,-1,-1,-1,-1};
 
 	extern SDL_Surface *sdl;
 	int i,x,y;
@@ -1117,9 +1117,6 @@ int uib_handle_event(SDL_Event *e, int taphandling) {
 		process_touchpad = 1;
 		return (taphandling&1) ? uib_handle_tap_processing(e) : 0;
 	}
-
-
-
 
 	switch (e->type) {
 		case SDL_MOUSEBUTTONUP:
@@ -1155,7 +1152,7 @@ int uib_handle_event(SDL_Event *e, int taphandling) {
 	// sticky key press
 	if (uikbd_keypos[i].sticky>0) {
 		if (e->button.type == SDL_MOUSEBUTTONDOWN) {
-			int pos=mylog2(uikbd_keypos[i].sticky & 0x0F);
+			int pos=mylog2(uikbd_keypos[i].sticky & 0xFF);
 			sticky = sticky ^ uikbd_keypos[i].sticky;
 			if (sticky & uikbd_keypos[i].sticky) {
 				push_key_event_norepeat((sticky2keysym[pos] = uikbd_keypos[i].key), 1);
@@ -1166,18 +1163,28 @@ int uib_handle_event(SDL_Event *e, int taphandling) {
 		}
 	} else {
 		// normal key press
-		if ((sticky & 1) && uikbd_keypos[i].shftkey) {
-			push_key_event_norepeat(sticky2keysym[0], 0);
+		if ((sticky & 0x07) && uikbd_keypos[i].shftkey) {
+			//push_key_event_norepeat(sticky2keysym[0], 0);
 			if (uikbd_keypos[i].repeat)
 				push_key_event(uikbd_keypos[i].shftkey, e->button.type == SDL_MOUSEBUTTONDOWN ? 1 : 0);
 			else
 				push_key_event_norepeat(uikbd_keypos[i].shftkey, e->button.type == SDL_MOUSEBUTTONDOWN ? 1 : 0);
-			push_key_event_norepeat(sticky2keysym[0], 1);
+			//push_key_event_norepeat(sticky2keysym[0], 1);
 		} else {
 			if (uikbd_keypos[i].repeat)
 				push_key_event(uikbd_keypos[i].key, e->button.type == SDL_MOUSEBUTTONDOWN ? 1 : 0);
 			else
 				push_key_event_norepeat(uikbd_keypos[i].key, e->button.type == SDL_MOUSEBUTTONDOWN ? 1 : 0);
+		}
+		// release all sticky keys except caps
+		if (e->button.type == SDL_MOUSEBUTTONUP && (sticky & 0xFE)) {
+			for (i=2, x=1; i<256; i=i*2, ++x) {
+				if (sticky & i) {
+					sticky = sticky ^ i;
+					push_key_event_norepeat(sticky2keysym[x], 0);
+					sticky2keysym[x] = -1;
+				}
+			}
 		}
 	}
 	uib_update(UIB_RECALC_KEYPRESS);
