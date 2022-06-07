@@ -45,7 +45,7 @@ APP_DESCRIPTION	:=	VNC Viewer for Nintendo 3DS
 APP_AUTHOR	:=	badda71 <me@badda.de>
 ICON		:=	icon.png
 
-VERSION_MAJOR :=	1
+VERSION_MAJOR :=	2
 VERSION_MINOR :=	0
 VERSION_MICRO :=	0
 
