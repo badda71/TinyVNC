@@ -267,7 +267,7 @@ static rfbBool resize(rfbClient* client) {
 	int flags = SDL_TOPSCR;
 	if (config.scaling) {
 		SDL_ResetVideoPosition();
-		if (width > 400 || height > 240) {
+		if (width != 400 || height != 240) {
 			flags |= ((width * 1024) / 400 > (height * 1024) / 240)? SDL_FITWIDTH : SDL_FITHEIGHT;
 		}
 		uib_show_scrollbars(0,0,400,240);
