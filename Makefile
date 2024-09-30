@@ -78,7 +78,7 @@ endif
 #---------------------------------------------------------------------------------
 ARCH	:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
 
-CFLAGS	:=	-g -Wall -O3 -mword-relocations -ffast-math \
+CFLAGS	:=	-g -Wall -Wno-implicit-function-declaration -O3 -mword-relocations -ffast-math \
 			-fomit-frame-pointer -ffunction-sections \
 			$(ARCH)
 

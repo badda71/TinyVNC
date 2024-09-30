@@ -1877,7 +1877,7 @@ int main() {
 		int ext=0;
 		int evtarget = 10, taphandling = 1;
 
-		if (!active) rfbClientErr("Noting to do ...");
+		if (!active) rfbClientErr("Nothing to do ...");
 		else {
 			// do we have a disconnect shortcut?
 			char *shift=NULL, *but=NULL;

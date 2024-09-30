@@ -538,6 +538,15 @@ int dsu_server_update(struct dsu_server *server, u32 but, circlePosition *posCp,
 			i=dsu_server_transform(data.gyro_y / count, server->coeffs.gy_deadzone, 0, server->coeffs.gy_threshold);
 			*((float*)(sbuf+96)) = (float)i / server->coeffs.gy_raw2dps;
 		}
+		// swap CPad with Cstick, L with ZL and R with ZR if meta button is pressed
+		// (needed for O3DS that does not have Cstick or Z-buttons)
+		if (data.but & server->button_meta) {
+			u16 swap;
+			swap = *((u16*)(sbuf+40)); *((u16*)(sbuf+40)) = *((u16*)(sbuf+42)); *((u16*)(sbuf+42)) = swap;
+			swap = *((u16*)(sbuf+52)); *((u16*)(sbuf+52)) = *((u16*)(sbuf+54)); *((u16*)(sbuf+54)) = swap;
+			sbuf[37] =	// Y, B, A, X, R, L, ZR, ZL
+				(sbuf[37] & 0xf0) + ((sbuf[37] & 0x3) << 2) + ((sbuf[37] & 0x0c) >> 2);
+		}
 
 		count = 0;
 		bzero(&data, sizeof(data));
