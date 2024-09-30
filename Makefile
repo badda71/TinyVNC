@@ -47,7 +47,7 @@ ICON		:=	icon.png
 
 VERSION_MAJOR :=	2
 VERSION_MINOR :=	0
-VERSION_MICRO :=	0
+VERSION_MICRO :=	1
 
 ifeq ($(VERSION_MICRO),0)
 	VERSION	:=	$(VERSION_MAJOR).$(VERSION_MINOR)
@@ -68,7 +68,7 @@ LOGO			:=	$(TOPDIR)/$(META)/logo.lz11
 ifeq (, $(shell which gm))
 	MKICOPNG := cp -f
 else
-	MKICOPNG := gm convert -fill white -font "Picopixel-Standard"\
+	MKICOPNG := gm convert -fill white -font $(TOPDIR)/$(META)/picopixel.ttf\
 		-draw "font-size 8;text 1,47 'v$(VERSION)';"
 endif
 
