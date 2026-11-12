@@ -46,9 +46,10 @@ struct dsu_server {
 	u32 button_LSTCK_PUSH; // KEY_DLEFT per default (+meta)
 	u32 button_RSTCK_PUSH; // KEY_DRIGHT per default (+meta)
 	int interval; // in which minimum intervals (ms) should we send new data to the clients? (default 75)
+	int invert_y; // flag to invert y-axis values
 };
 
-extern int dsu_server_init(struct dsu_server *server, int port);
+extern int dsu_server_init(struct dsu_server *server, int port, int invert_y);
 extern int dsu_server_shutdown(struct dsu_server *server);
 extern int dsu_server_run(struct dsu_server *server);
 extern int dsu_server_update(	// all parameters can be NULL except server

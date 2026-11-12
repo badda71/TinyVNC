@@ -53,6 +53,7 @@ typedef struct {
 	int ctr_dsu_enable;
 	int ctr_dsu_port;
 	int ctr_udp_motion_port;
+	int ctr_dsu_invert_y;
 } vnc_config;
 
 static vnc_config default_config = {
@@ -81,8 +82,38 @@ static vnc_config default_config = {
 	.ctr_udp_motion = 0,
 	.ctr_dsu_enable = 0,
 	.ctr_dsu_port = 26760,
-	.ctr_udp_motion_port = 1609
+	.ctr_udp_motion_port = 1609,
+	.ctr_dsu_invert_y = 0
 };
+
+typedef struct {
+	char name[128];
+	char host[128];
+	int port;
+	int audioport;
+	char audiopath[128];
+	char user[128];
+	char pass[128];
+	int scaling;
+	int vncoff;
+	int port2;
+	int enablevnc2;
+	int scaling2;
+	int eventtarget; // 0: events are sent to top, 1: events are sent to bottom
+	int notaphandling;
+	int enableaudio;
+	int hidelog;
+	int backoff; // bottom backlight off?
+	int hidekb;
+	int ctr_vnc_keys;
+	int ctr_vnc_touch;
+	int ctr_udp_enable;
+	int ctr_udp_port;
+	int ctr_udp_motion;
+	int ctr_dsu_enable;
+	int ctr_dsu_port;
+	int ctr_udp_motion_port;
+} vnc_config_2_0;
 
 typedef struct {
 	char name[128];
@@ -988,6 +1019,7 @@ enum {
 	EDITCONF_CTRUDPMOTIONPORT,
 	EDITCONF_CTRDSUENABLE,
 	EDITCONF_CTRDSUPORT,
+	EDITCONF_CTRDSUINVERTY,
 	EDITCONF_END
 };
 
@@ -1212,7 +1244,12 @@ static int editconfig(vnc_config *c) {
 					if (sel == EDITCONF_CTRDSUPORT)uib_invert_colors();
 					uib_printf(	"%-18d", nc.ctr_dsu_port);
 					if (sel == EDITCONF_CTRDSUPORT) uib_reset_colors();
-				} else l+=2;
+					uib_set_position(0,++l);
+					uib_printf(nc.ctr_dsu_invert_y?"\x91 ":"\x90 ");
+					if (sel == EDITCONF_CTRDSUINVERTY) uib_invert_colors();
+					uib_printf(	"Invert cemuhook y-axis");
+					if (sel == EDITCONF_CTRDSUINVERTY) uib_reset_colors();
+				} else l+=3;
 			}
 			if (msg && showmsg) {
 				uib_invert_colors();
@@ -1294,7 +1331,7 @@ static int editconfig(vnc_config *c) {
 						if (sel < EDITCONF_ENABLEAUDIO) sel = 0;
 						if (!nc.enableaudio && sel==EDITCONF_AUDIOPATH) sel=EDITCONF_ENABLEAUDIO;
 						if (!nc.ctr_udp_enable && sel==EDITCONF_CTRUDPMOTIONPORT) sel=EDITCONF_CTRUDPENABLE;
-						if (!nc.ctr_dsu_enable && sel==EDITCONF_CTRDSUPORT) sel=EDITCONF_CTRDSUENABLE;
+						if (!nc.ctr_dsu_enable && sel==EDITCONF_CTRDSUINVERTY) sel=EDITCONF_CTRDSUENABLE;
 						if (!nc.ctr_udp_motion && sel==EDITCONF_CTRUDPMOTIONPORT) sel=EDITCONF_CTRUDPMOTION;
 					}
 					upd = 1;
@@ -1484,6 +1521,9 @@ static int editconfig(vnc_config *c) {
 							nc.ctr_dsu_port = po;
 						}
 						break;
+					case EDITCONF_CTRDSUINVERTY:
+						nc.ctr_dsu_invert_y = !nc.ctr_dsu_invert_y;
+						break;
 					}
 					break;
 				default:
@@ -1540,6 +1580,15 @@ static void readconfig() {
 					strcpy(conf[i].user, c[i].user);
 					strcpy(conf[i].pass, c[i].pass);
 					conf[i].scaling = c[i].scaling;
+				}
+			} else if (sz == sizeof(vnc_config_2_0) * NUMCONF) {
+				// starting for first time after upgrade from 2.0
+				// read 2.0 config
+				vnc_config_2_0 c[NUMCONF] = {0};
+				fread((void*)c, sizeof(vnc_config_2_0), NUMCONF, f);
+				for(int i=0; i<NUMCONF; ++i) {
+					// copy everything except the new fields at the end (1 int)
+					memcpy((void*)conf, (void*)c, sizeof(vnc_config_2_0));
 				}
 			} else {
 				// read current config
@@ -1858,7 +1907,7 @@ int main() {
 			}
 		}
 		if (config.ctr_dsu_enable) {
-			if (dsu_server_init(&dsuserver, config.ctr_dsu_port))
+			if (dsu_server_init(&dsuserver, config.ctr_dsu_port, config.ctr_dsu_invert_y))
 				rfbClientErr("Cemuhook server: %s", dsuserver.lasterrmsg);
 			else {
 				//dsuserver.interval = 0;

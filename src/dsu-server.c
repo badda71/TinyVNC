@@ -24,7 +24,7 @@ https://v1993.github.io/cemuhook-protocol/
 
 static u32 serverID=0;
 
-int dsu_server_init(struct dsu_server *server, int port)
+int dsu_server_init(struct dsu_server *server, int port, int invert_y)
 {
 	if (port==0) port=DSU_DEFAULT_PORT;
 
@@ -67,6 +67,7 @@ int dsu_server_init(struct dsu_server *server, int port)
 	server->button_LSTCK_PUSH = KEY_DLEFT;
 	server->button_RSTCK_PUSH = KEY_DRIGHT;
 	server->interval = 75;
+	server->invert_y = invert_y;
 
 	// set default coeffs
 	server->coeffs.cp_deadzone = 20;
@@ -476,6 +477,7 @@ int dsu_server_update(struct dsu_server *server, u32 but, circlePosition *posCp,
 			i=dsu_server_transform(data.posCp_y / count, server->coeffs.cp_deadzone, server->coeffs.cp_max, server->coeffs.cp_threshold);
 			i=((i+server->coeffs.cp_max) * 128) / server->coeffs.cp_max;
 			sbuf[41] = i>255?255:i;
+			if (server->invert_y && sbuf[41] != 128) sbuf[41] = ~sbuf[41];
 		}
 		if (posStk) {
 			// Right stick X (plus rightward, 128=neutral)
@@ -486,6 +488,7 @@ int dsu_server_update(struct dsu_server *server, u32 but, circlePosition *posCp,
 			i=dsu_server_transform(data.posStk_y / count, server->coeffs.cs_deadzone, server->coeffs.cs_max, server->coeffs.cs_threshold);
 			i=((i+server->coeffs.cs_max) * 128) / server->coeffs.cs_max;
 			sbuf[43] = i>255?255:i;
+			if (server->invert_y && sbuf[43] != 128) sbuf[43] = ~sbuf[43];
 		}
 		sbuf[48] = data.but & KEY_Y ? 255 : 0;		// Analog Y (0 or 255)
 		sbuf[49] = data.but & KEY_B ? 255 : 0;		// Analog B (0 or 255)
