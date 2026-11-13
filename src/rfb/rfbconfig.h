@@ -142,14 +142,14 @@
 /* #undef LIBVNCSERVER_NEED_INADDR_T */
 
 /* Define to the full name and version of this package. */
-#define LIBVNCSERVER_PACKAGE_STRING  "LibVNCServer 0.9.13"
+#define LIBVNCSERVER_PACKAGE_STRING  "LibVNCServer 0.9.15"
 
 /* Define to the version of this package. */
-#define LIBVNCSERVER_PACKAGE_VERSION  "0.9.13"
-#define LIBVNCSERVER_VERSION "0.9.13"
+#define LIBVNCSERVER_PACKAGE_VERSION  "0.9.15"
+#define LIBVNCSERVER_VERSION "0.9.15"
 #define LIBVNCSERVER_VERSION_MAJOR "0"
 #define LIBVNCSERVER_VERSION_MINOR "9"
-#define LIBVNCSERVER_VERSION_PATCHLEVEL "13"
+#define LIBVNCSERVER_VERSION_PATCHLEVEL "15"
 
 /* Define to 1 if libgcrypt is present */
 /* #undef LIBVNCSERVER_HAVE_LIBGCRYPT */

@@ -48,10 +48,95 @@
 void
 listenForIncomingConnections(rfbClient* client)
 {
+#if defined(WIN32) || defined(__3DS__)
   /* FIXME */
-  rfbClientErr("listenForIncomingConnections on MinGW32 NOT IMPLEMENTED\n");
+  rfbClientErr("listenForIncomingConnections NOT IMPLEMENTED\n");
   return;
+#else
+  int listenSocket = RFB_INVALID_SOCKET, listen6Socket = RFB_INVALID_SOCKET;
+  fd_set fds;
+
+  client->listenSpecified = TRUE;
+
+  listenSocket = ListenAtTcpPortAndAddress(client->listenPort, client->listenAddress);
+
+  if (listenSocket == RFB_INVALID_SOCKET)
+    return;
+
+  rfbClientLog("%s -listen: Listening on port %d\n",
+	  client->programName,client->listenPort);
+  rfbClientLog("%s -listen: Command line errors are not reported until "
+	  "a connection comes in.\n", client->programName);
+
+#ifdef LIBVNCSERVER_IPv6 /* only try that if we're IPv6-capable, otherwise we may try to bind to the same port which would make all that listening fail */ 
+  /* only do IPv6 listen of listen6Port is set */
+  if (client->listen6Port != RFB_INVALID_SOCKET)
+    {
+      listen6Socket = ListenAtTcpPortAndAddress(client->listen6Port, client->listen6Address);
+
+      if (listen6Socket == RFB_INVALID_SOCKET)
+	return;
+
+      rfbClientLog("%s -listen: Listening on IPV6 port %d\n",
+		   client->programName,client->listenPort);
+      rfbClientLog("%s -listen: Command line errors are not reported until "
+		   "a connection comes in.\n", client->programName);
+    }
+#endif
+
+  while (TRUE) {
+    int r;
+    /* reap any zombies */
+    int status, pid;
+    while ((pid= wait4(-1, &status, WNOHANG, (struct rusage *)0))>0);
+
+    /* TODO: callback for discard any events (like X11 events) */
+
+    FD_ZERO(&fds); 
+
+    if(listenSocket != RFB_INVALID_SOCKET)
+      FD_SET(listenSocket, &fds);  
+    if(listen6Socket != RFB_INVALID_SOCKET)
+      FD_SET(listen6Socket, &fds);
+
+    r = select(rfbMax(listenSocket, listen6Socket)+1, &fds, NULL, NULL, NULL);
+
+    if (r > 0) {
+      if (listenSocket != RFB_INVALID_SOCKET && FD_ISSET(listenSocket, &fds))
+	client->sock = AcceptTcpConnection(listenSocket);
+      else if (listen6Socket != RFB_INVALID_SOCKET && FD_ISSET(listen6Socket, &fds))
+	client->sock = AcceptTcpConnection(listen6Socket);
+
+      if (client->sock == RFB_INVALID_SOCKET)
+	return;
+      if (!SetNonBlocking(client->sock))
+	return;
+
+      /* Now fork off a new process to deal with it... */
+
+      switch (fork()) {
+
+      case -1: 
+	rfbClientErr("fork\n"); 
+	return;
+
+      case 0:
+	/* child - return to caller */
+	rfbCloseSocket(listenSocket);
+	rfbCloseSocket(listen6Socket);
+	return;
+
+      default:
+	/* parent - go round and listen again */
+	rfbCloseSocket(client->sock);
+	break;
+      }
+    }
+  }
+#endif
 }
+
+
 
 /*
  * listenForIncomingConnectionsNoFork() - listen for incoming connections
@@ -116,9 +201,9 @@ listenForIncomingConnectionsNoFork(rfbClient* client, int timeout)
 
   if (r > 0)
     {
-      if (FD_ISSET(client->listenSock, &fds))
+      if (client->listenSock != RFB_INVALID_SOCKET && FD_ISSET(client->listenSock, &fds))
 	client->sock = AcceptTcpConnection(client->listenSock); 
-      else if (FD_ISSET(client->listen6Sock, &fds))
+      else if (client->listen6Sock != RFB_INVALID_SOCKET && FD_ISSET(client->listen6Sock, &fds))
 	client->sock = AcceptTcpConnection(client->listen6Sock);
 
       if (client->sock == RFB_INVALID_SOCKET)

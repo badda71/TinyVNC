@@ -2,7 +2,7 @@
 #define _RFB_CRYPTO_H 1
 
 #include <stdint.h>
-#include "rfb/rfbconfig.h"
+#include "rfbconfig.h"
 
 #define SHA1_HASH_SIZE 20
 #define MD5_HASH_SIZE 16
@@ -11,7 +11,9 @@
 int hash_md5(void *out, const void *in, const size_t in_len);
 
 /* Generates an SHA1 hash of 'in' and writes it to 'out', which must be 20 bytes in size. */
+#ifdef LIBVNCSERVER_WITH_WEBSOCKETS
 int hash_sha1(void *out, const void *in, const size_t in_len);
+#endif
 
 /* Fill 'out' with 'len' random bytes. */
 void random_bytes(void *out, size_t len);

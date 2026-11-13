@@ -39,6 +39,9 @@
 #include <time.h>
 #include <rfb/rfbclient.h>
 #include "tls.h"
+#if defined(LIBVNCSERVER_HAVE_LIBZ) && defined(LIBVNCSERVER_HAVE_LIBJPEG)
+#include "turbojpeg.h"
+#endif
 
 static void Dummy(rfbClient* client) {
 }
@@ -48,10 +51,22 @@ static rfbBool DummyPoint(rfbClient* client, int x, int y) {
 static void DummyRect(rfbClient* client, int x, int y, int w, int h) {
 }
 
+#ifndef WIN32
+#ifndef __3DS__
+#include <termios.h>
+#endif
+#endif
+
 static char* ReadPassword(rfbClient* client) {
 	int i;
 	char* p=calloc(1,9);
 	if (!p) return p;
+#if !defined(WIN32) && !defined(__3DS__)
+	struct termios save,noecho;
+	if(tcgetattr(fileno(stdin),&save)!=0) return p;
+	noecho=save; noecho.c_lflag &= ~ECHO;
+	if(tcsetattr(fileno(stdin),TCSAFLUSH,&noecho)!=0) return p;
+#endif
 	fprintf(stderr,"Password: ");
 	fflush(stderr);
 	i=0;
@@ -65,6 +80,9 @@ static char* ReadPassword(rfbClient* client) {
 			p[i]=0;
 		}
 	}
+#if !defined(WIN32) && !defined(__3DS__)
+	tcsetattr(fileno(stdin),TCSAFLUSH,&save);
+#endif
 	return p;
 }
 static rfbBool MallocFrameBuffer(rfbClient* client) {
@@ -232,6 +250,47 @@ static void initAppData(AppData* data) {
 	data->useRemoteCursor=FALSE;
 }
 
+static void parse_host_and_port(const char *input, char **host, int *port) {
+    char *open_bracket = strchr(input, '[');
+    char *close_bracket = strchr(input, ']');
+
+    if (open_bracket && close_bracket && close_bracket > open_bracket) {
+        // IPv6 address with brackets, allocate and copy IP inside brackets
+        size_t ip_len = close_bracket - open_bracket - 1;
+        *host = malloc(ip_len + 1);
+        strncpy(*host, open_bracket + 1, ip_len);
+        (*host)[ip_len] = '\0';
+        // check for port via last colon
+        char *colon = strchr(close_bracket, ':');
+        if (colon) {
+            // Parse port as integer
+            *port = atoi(colon + 1);
+        }
+    } else {
+        // IPv4 or IPv6 w/o brackets, look for colons to decide which one
+        char *first_colon = strchr(input, ':');
+        char *last_colon = strrchr(input, ':');
+        if (first_colon) {
+            // check IPv4 vs IPv6
+            if (first_colon == last_colon) {
+                // one colon, i.e. IPv4 with port, allocate and copy IP (before last colon)
+                size_t ip_len = first_colon - input;
+                *host = malloc(ip_len + 1);
+                strncpy(*host, input, ip_len);
+                (*host)[ip_len] = '\0';
+                // Parse port as integer
+                *port = atoi(first_colon + 1);
+            } else {
+                // IPv6, just copy input
+                *host = strdup(input);
+            }
+        } else {
+            // No colon, i.e. IPv4 w/o port, just copy input
+            *host = strdup(input);
+        }
+    }
+}
+
 rfbClient* rfbGetClient(int bitsPerSample,int samplesPerPixel,
 			int bytesPerPixel) {
 #ifdef WIN32
@@ -346,11 +405,14 @@ rfbClient* rfbGetClient(int bitsPerSample,int samplesPerPixel,
   client->saslSecret = NULL;
 #endif /* LIBVNCSERVER_HAVE_SASL */
 
+  client->requestedResize = FALSE;
+  client->screen.width = 0;
+  client->screen.height = 0;
+
   return client;
 }
 
-static rfbBool rfbInitConnection(rfbClient* client)
-{
+rfbBool rfbClientConnect(rfbClient* client) {
   /* Unless we accepted an incoming connection, make a TCP connection to the
      given VNC server */
 
@@ -365,7 +427,11 @@ static rfbBool rfbInitConnection(rfbClient* client)
         return FALSE;
     }
   }
+  return TRUE;
+}
 
+
+rfbBool rfbClientInitialise(rfbClient* client) {
   /* Initialise the VNC connection, including reading the password */
 
   if (!InitialiseRFBConnection(client))
@@ -383,6 +449,7 @@ static rfbBool rfbInitConnection(rfbClient* client)
     client->updateRect.x = client->updateRect.y = 0;
     client->updateRect.w = client->width;
     client->updateRect.h = client->height;
+    client->isUpdateRectManagedByLib = TRUE;
   }
 
   if (client->appData.scaleSetting>1)
@@ -443,33 +510,17 @@ rfbBool rfbInitClient(rfbClient* client,int* argc,char** argv) {
         client->QoS_DSCP = atoi(argv[i+1]);
         j+=2;
       } else if (i+1<*argc && strcmp(argv[i], "-repeaterdest") == 0) {
-	char* colon=strchr(argv[i+1],':');
+	free(client->destHost);
+	client->destPort = 5900;
 
-	if(client->destHost)
-	  free(client->destHost);
-        client->destPort = 5900;
+        parse_host_and_port(argv[i], &client->destHost, &client->destPort);
 
-	client->destHost = strdup(argv[i+1]);
-	if(client->destHost && colon) {
-	  client->destHost[(int)(colon-argv[i+1])] = '\0';
-	  client->destPort = atoi(colon+1);
-	}
         j+=2;
       } else {
-	char* colon=strrchr(argv[i],':');
+	free(client->serverHost);
 
-	if(client->serverHost)
-	  free(client->serverHost);
+        parse_host_and_port(argv[i], &client->serverHost, &client->serverPort);
 
-	if(colon) {
-	  client->serverHost = strdup(argv[i]);
-	  if(client->serverHost) {
-	    client->serverHost[(int)(colon-argv[i])] = '\0';
-	    client->serverPort = atoi(colon+1);
-	  }
-	} else {
-	  client->serverHost = strdup(argv[i]);
-	}
 	if(client->serverPort >= 0 && client->serverPort < 5900)
 	  client->serverPort += 5900;
       }
@@ -482,7 +533,7 @@ rfbBool rfbInitClient(rfbClient* client,int* argc,char** argv) {
     }
   }
 
-  if(!rfbInitConnection(client)) {
+  if(!rfbClientConnect(client) || !rfbClientInitialise(client)) {
     rfbClientCleanup(client);
     return FALSE;
   }
@@ -507,13 +558,17 @@ void rfbClientCleanup(rfbClient* client) {
 	client->decompStream.msg != NULL)
       rfbClientLog("inflateEnd: %s\n", client->decompStream.msg );
   }
+
+#ifdef LIBVNCSERVER_HAVE_LIBJPEG
+  if(client->tjhnd){
+    tjDestroy(client->tjhnd);
+    client->tjhnd = NULL;
+  }
+#endif /* LIBVNCSERVER_HAVE_LIBJPEG */
 #endif
 
-  if (client->ultra_buffer)
-    free(client->ultra_buffer);
-
-  if (client->raw_buffer)
-    free(client->raw_buffer);
+  free(client->ultra_buffer);
+  free(client->raw_buffer);
 
   FreeTLS(client);
 
@@ -529,16 +584,19 @@ void rfbClientCleanup(rfbClient* client) {
     rfbCloseSocket(client->sock);
   if (client->listenSock != RFB_INVALID_SOCKET)
     rfbCloseSocket(client->listenSock);
+  if (client->listen6Sock != RFB_INVALID_SOCKET)
+    rfbCloseSocket(client->listen6Sock);
   free(client->desktopName);
   free(client->serverHost);
-  if (client->destHost)
-    free(client->destHost);
-  if (client->clientAuthSchemes)
-    free(client->clientAuthSchemes);
+  free(client->destHost);
+  free(client->clientAuthSchemes);
+  free(client->rcSource);
+  free(client->rcMask);
 
 #ifdef LIBVNCSERVER_HAVE_SASL
-  if (client->saslSecret)
-    free(client->saslSecret);
+  free(client->saslSecret);
+  if (client->saslconn)
+    sasl_dispose(&client->saslconn);
 #endif /* LIBVNCSERVER_HAVE_SASL */
 
 #ifdef WIN32

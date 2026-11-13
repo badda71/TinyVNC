@@ -54,23 +54,61 @@
 
 #ifndef RGB_TO_PIXEL
 
-#define RGB_TO_PIXEL(bpp,r,g,b)						\
-  (((CARD##bpp)(r) & client->format.redMax) << client->format.redShift |		\
-   ((CARD##bpp)(g) & client->format.greenMax) << client->format.greenShift |	\
-   ((CARD##bpp)(b) & client->format.blueMax) << client->format.blueShift)
+/*
+ * Unfortunately we cannot use rfbClientSwap16IfLE() and related macros here as
+ * rfbClientSwap16IfLE() swaps when the host byte order of the client is
+ * little-endian, but we want to swap when the host byte order of the client is
+ * different from the byte order of the pixel format it is using. In other
+ * words, rfbClientSwap16IfLE() will do the right thing only when the pixel
+ * format is big-endian.
+ */
+#define Swap8(c) (c)
+#define Swap16(s) ((((s) & 0xff) << 8) | (((s) >> 8) & 0xff))
+#define Swap32(l) ((((l) >> 24) & 0x000000ff)| \
+                   (((l) & 0x00ff0000) >> 8)  | \
+                   (((l) & 0x0000ff00) << 8)  | \
+                   (((l) & 0x000000ff) << 24))
 
-#define RGB24_TO_PIXEL(bpp,r,g,b)                                       \
-   ((((CARD##bpp)(r) & 0xFF) * client->format.redMax + 127) / 255             \
-    << client->format.redShift |                                              \
-    (((CARD##bpp)(g) & 0xFF) * client->format.greenMax + 127) / 255           \
-    << client->format.greenShift |                                            \
-    (((CARD##bpp)(b) & 0xFF) * client->format.blueMax + 127) / 255            \
-    << client->format.blueShift)
+#ifdef LIBVNCSERVER_WORDS_BIGENDIAN
+#define NEED_SWAP (!client->format.bigEndian)
+#else
+#define NEED_SWAP (client->format.bigEndian)
+#endif
 
-#define RGB24_TO_PIXEL32(r,g,b)						\
-  (((uint32_t)(r) & 0xFF) << client->format.redShift |				\
-   ((uint32_t)(g) & 0xFF) << client->format.greenShift |			\
+#define RGB_TO_PIXEL_NOSWAP(card,r,g,b)                                       \
+   (((card)(r) & client->format.redMax) << client->format.redShift |          \
+    ((card)(g) & client->format.greenMax) << client->format.greenShift |      \
+    ((card)(b) & client->format.blueMax) << client->format.blueShift)
+
+#define RGB_TO_PIXEL(bpp,r,g,b) NEED_SWAP ?                                   \
+  CONCAT2(Swap,bpp)(RGB_TO_PIXEL_NOSWAP(CARD##bpp,r,g,b)) :                   \
+  RGB_TO_PIXEL_NOSWAP(CARD##bpp,r,g,b)
+
+#define RGB24_TO_PIXEL_NOSWAP(card,r,g,b)                                     \
+  ((((card)(r) & 0xFF) * client->format.redMax + 127) / 255                   \
+   << client->format.redShift |                                               \
+   (((card)(g) & 0xFF) * client->format.greenMax + 127) / 255                 \
+   << client->format.greenShift |                                             \
+   (((card)(b) & 0xFF) * client->format.blueMax + 127) / 255                  \
+   << client->format.blueShift)
+
+#define RGB24_TO_PIXEL(bpp,r,g,b) NEED_SWAP ?                                 \
+  CONCAT2(Swap,bpp)(RGB24_TO_PIXEL_NOSWAP(CARD##bpp,r,g,b)) :                 \
+  RGB24_TO_PIXEL_NOSWAP(CARD##bpp,r,g,b)
+
+#define RGB24_TO_PIXEL32_NOSWAP(r,g,b)                                        \
+  (((uint32_t)(r) & 0xFF) << client->format.redShift |                        \
+   ((uint32_t)(g) & 0xFF) << client->format.greenShift |                      \
    ((uint32_t)(b) & 0xFF) << client->format.blueShift)
+
+#define RGB24_TO_PIXEL32_SWAP(r,g,b)                                          \
+  (((uint32_t)(r) & 0xFF) << (24 - client->format.redShift) |                 \
+   ((uint32_t)(g) & 0xFF) << (24 - client->format.greenShift) |               \
+   ((uint32_t)(b) & 0xFF) << (24 - client->format.blueShift))
+
+#define RGB24_TO_PIXEL32(r,g,b) NEED_SWAP ?                                   \
+  RGB24_TO_PIXEL32_SWAP(r,g,b) :                                              \
+  RGB24_TO_PIXEL32_NOSWAP(r,g,b)
 
 #endif
 
@@ -96,7 +134,6 @@ static rfbBool DecompressJpegRectBPP(rfbClient* client, int x, int y, int w, int
 static rfbBool
 HandleTightBPP (rfbClient* client, int rx, int ry, int rw, int rh)
 {
-//log_citra("%s: %d %d %d %d",__func__,rx,ry,rw,rh);
   CARDBPP fill_colour;
   uint8_t comp_ctl;
   uint8_t filter_id;
@@ -192,6 +229,11 @@ HandleTightBPP (rfbClient* client, int rx, int ry, int rw, int rh)
       bitsPixel = InitFilterPaletteBPP(client, rw, rh);
       break;
     case rfbTightFilterGradient:
+      if (rw > TIGHT_GRADIENT_MAX_WIDTH) {
+	rfbClientLog("Tight Gradient rectangle width %d exceeds maximum %d.\n",
+		     rw, TIGHT_GRADIENT_MAX_WIDTH);
+	return FALSE;
+      }
       filterFn = FilterGradientBPP;
       bitsPixel = InitFilterGradientBPP(client, rw, rh);
       break;
@@ -226,6 +268,11 @@ HandleTightBPP (rfbClient* client, int rx, int ry, int rw, int rh)
     return FALSE;
   }
   if (readUncompressed) {
+    if (compressedLen > RFB_BUFFER_SIZE) {
+	rfbClientErr("Received uncompressed byte count exceeds our buffer size.\n");
+	return FALSE;
+    }
+
     if (!ReadFromRFBServer(client, (char*)client->buffer, compressedLen))
       return FALSE;
 
@@ -294,12 +341,22 @@ HandleTightBPP (rfbClient* client, int rx, int ry, int rw, int rh)
 
       numRows = (bufferSize - zs->avail_out) / rowSize;
 
+      /* The decompressed stream is server-controlled and may yield more rows
+         than the rectangle's declared height.  filterFn() writes directly into
+         client->frameBuffer, so clamp here before writing to avoid running past
+         the framebuffer (heap out-of-bounds write).  The post-loop
+         "rowsProcessed != rh" check happens too late. */
+      if (numRows > rh - rowsProcessed) {
+	rfbClientLog("Tight: too many scan lines after decompression.\n");
+	return FALSE;
+      }
+
       filterFn(client, rx, ry+rowsProcessed, numRows);
 
       extraBytes = bufferSize - zs->avail_out - numRows * rowSize;
-      if (extraBytes > 0) {
+      if (extraBytes > 0)
 	memcpy(client->buffer, &client->buffer[numRows * rowSize], extraBytes);
-      }
+
       rowsProcessed += numRows;
     }
     while (zs->avail_out == 0);
@@ -360,11 +417,10 @@ FilterCopyBPP (rfbClient* client, int srcx, int srcy, int numRows)
   }
 #endif
 
-  for (y = 0; y < numRows; y++) {
+  for (y = 0; y < numRows; y++)
     memcpy (&dst[y*client->width],
             &client->buffer[y * client->rectWidth * (BPP / 8)],
             client->rectWidth * (BPP / 8));
-  }
 }
 
 static int
@@ -389,7 +445,7 @@ FilterGradient24 (rfbClient* client, int srcx, int srcy, int numRows)
   CARDBPP *dst =
     (CARDBPP *)&client->frameBuffer[(srcy * client->width + srcx) * BPP / 8];
   int x, y, c;
-  uint8_t thisRow[2048*3];
+  uint8_t thisRow[TIGHT_GRADIENT_MAX_WIDTH*3];
   uint8_t pix[3];
   int est[3];
 
@@ -417,6 +473,7 @@ FilterGradient24 (rfbClient* client, int srcx, int srcy, int numRows)
       }
       dst[y*client->width+x] = RGB24_TO_PIXEL32(pix[0], pix[1], pix[2]);
     }
+
     memcpy(client->tightPrevRow, thisRow, client->rectWidth * 3);
   }
 }
@@ -431,7 +488,7 @@ FilterGradientBPP (rfbClient* client, int srcx, int srcy, int numRows)
   int x, y, c;
   CARDBPP *src = (CARDBPP *)client->buffer;
   uint16_t *thatRow = (uint16_t *)client->tightPrevRow;
-  uint16_t thisRow[2048*3];
+  uint16_t thisRow[TIGHT_GRADIENT_MAX_WIDTH*3];
   uint16_t pix[3];
   uint16_t max[3];
   int shift[3];
@@ -530,9 +587,8 @@ FilterPaletteBPP (rfbClient* client, int srcx, int srcy, int numRows)
     w = (client->rectWidth + 7) / 8;
     for (y = 0; y < numRows; y++) {
       for (x = 0; x < client->rectWidth / 8; x++) {
-	for (b = 7; b >= 0; b--) {
+	for (b = 7; b >= 0; b--)
 	  dst[y*client->width+x*8+7-b] = palette[src[y*w+x] >> b & 1];
-	}
       }
       for (b = 7; b >= 8 - client->rectWidth % 8; b--) {
 	dst[y*client->width+x*8+7-b] = palette[src[y*w+x] >> b & 1];
@@ -540,9 +596,8 @@ FilterPaletteBPP (rfbClient* client, int srcx, int srcy, int numRows)
     }
   } else {
     for (y = 0; y < numRows; y++)
-      for (x = 0; x < client->rectWidth; x++) {
+      for (x = 0; x < client->rectWidth; x++)
 	dst[y*client->width+x] = palette[(int)src[y*client->rectWidth+x]];
-    }
   }
 }
 
@@ -595,13 +650,10 @@ DecompressJpegRectBPP(rfbClient* client, int x, int y, int w, int h)
   pitch = w * pixelSize;
   dst = (uint8_t *)client->buffer;
 #else
-/*
   if (client->format.bigEndian) flags |= TJ_ALPHAFIRST;
   if (client->format.redShift == 16 && client->format.blueShift == 0)
     flags |= TJ_BGR;
   if (client->format.bigEndian) flags ^= TJ_BGR;
-*/
-  flags = TJ_ALPHAFIRST | TJ_BGR;
   pixelSize = BPP / 8;
   pitch = client->width * pixelSize;
   dst = &client->frameBuffer[y * pitch + x * pixelSize];
@@ -668,4 +720,3 @@ ReadCompactLen (rfbClient* client)
 /* LIBVNCSERVER_HAVE_LIBZ and LIBVNCSERVER_HAVE_LIBJPEG */
 #endif
 #endif
-

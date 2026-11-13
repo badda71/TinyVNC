@@ -20,7 +20,7 @@
  */
 
 /*
- * rfbproto.c - functions to deal with client side of RFB protocol.
+ * rfbclient.c - functions to deal with client side of RFB protocol.
  */
 
 #ifdef __STRICT_ANSI__
@@ -488,6 +488,7 @@ ReadSupportedSecurityType(rfbClient* client, uint32_t *result, rfbBool subAuth)
     {
         if (!ReadFromRFBServer(client, (char *)&tAuth[loop], 1)) return FALSE;
         rfbClientLog("%d) Received security type %d\n", loop, tAuth[loop]);
+
 		switch (tAuth[loop]) {
 		case rfbUltra:
 			rfbClientLog("UltraVNC server detected, enabling UltraVNC specific messages\n");
@@ -498,6 +499,7 @@ ReadSupportedSecurityType(rfbClient* client, uint32_t *result, rfbBool subAuth)
 			DefaultSupportedMessagesTightVNC(client);
 			break;
 		}
+
         if (flag) continue;
         extAuthHandler=FALSE;
         for (e = rfbClientExtensions; e; e = e->next) {
@@ -603,8 +605,8 @@ HandleVncAuth(rfbClient *client)
 static void
 FreeUserCredential(rfbCredential *cred)
 {
-  if (cred->userCredential.username) free(cred->userCredential.username);
-  if (cred->userCredential.password) free(cred->userCredential.password);
+  free(cred->userCredential.username);
+  free(cred->userCredential.password);
   free(cred);
 }
 
@@ -993,6 +995,29 @@ InitialiseRFBConnection(rfbClient* client)
   if ((major==rfbProtocolMajorVersion) && (minor>rfbProtocolMinorVersion))
     client->minor = rfbProtocolMinorVersion;
 
+  /* Legacy version of UltraVNC uses minor codes 4 and 6 for the server */
+  /* left in for backwards compatibility */
+  if (major==3 && (minor==4 || minor==6)) {
+      rfbClientLog("UltraVNC server detected, enabling UltraVNC specific messages\n",pv);
+      DefaultSupportedMessagesUltraVNC(client);
+  }
+
+  /* Legacy version of UltraVNC Single Click uses minor codes 14 and 16 for the server */
+  /* left in for backwards compatibility */
+  if (major==3 && (minor==14 || minor==16)) {
+     minor = minor - 10;
+     client->minor = minor;
+     rfbClientLog("UltraVNC Single Click server detected, enabling UltraVNC specific messages\n",pv);
+     DefaultSupportedMessagesUltraVNC(client);
+  }
+
+  /* Legacy version of TightVNC uses minor codes 5 for the server */
+  /* left in for backwards compatibility */
+  if (major==3 && minor==5) {
+      rfbClientLog("TightVNC server detected, enabling TightVNC specific messages\n",pv);
+      DefaultSupportedMessagesTightVNC(client);
+  }
+
   /* we do not support > RFB3.8 */
   if ((major==3 && minor>8) || major>3)
   {
@@ -1102,18 +1127,36 @@ InitialiseRFBConnection(rfbClient* client)
     if (!HandleVeNCryptAuth(client)) return FALSE;
 
     switch (client->subAuthScheme) {
+      /*
+       * rfbNoAuth and rfbVncAuth are not actually part of VeNCrypt, however
+       * it is important to support them to ensure better compatibility.
+       * When establishing a connection, the client does not know whether
+       * the server supports encryption, and always prefers VeNCrypt if enabled.
+       * Next, if encryption is not available on the server, the connection
+       * will fail. Since the RFB doesn't have any downgrade methods in case
+       * of failure, a client that does not support unencrypted VeNCrypt methods
+       * will never be able to connect.
+       *
+       * The RFB specification also considers any ordinary subauths are valid,
+       * which legitimizes this solution.
+       *
+       * rfbVeNCryptPlain is also supported for better compatibility.
+       */
 
+      case rfbNoAuth:
       case rfbVeNCryptTLSNone:
       case rfbVeNCryptX509None:
         rfbClientLog("No sub authentication needed\n");
         if (!rfbHandleAuthResult(client)) return FALSE;
         break;
 
+      case rfbVncAuth:
       case rfbVeNCryptTLSVNC:
       case rfbVeNCryptX509VNC:
         if (!HandleVncAuth(client)) return FALSE;
         break;
 
+      case rfbVeNCryptPlain:
       case rfbVeNCryptTLSPlain:
       case rfbVeNCryptX509Plain:
         if (!HandlePlainAuth(client)) return FALSE;
@@ -1381,6 +1424,8 @@ SetFormatAndEncodings(rfbClient* client)
   /* New Frame Buffer Size */
   if (se->nEncodings < MAX_ENCODINGS && client->canHandleNewFBSize)
     encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingNewFBSize);
+  if (se->nEncodings < MAX_ENCODINGS)
+    encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingExtDesktopSize);
 
   /* Last Rect */
   if (se->nEncodings < MAX_ENCODINGS && requestLastRectEncoding)
@@ -1400,6 +1445,13 @@ SetFormatAndEncodings(rfbClient* client)
 
   if (se->nEncodings < MAX_ENCODINGS)
     encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingQemuExtendedKeyEvent);
+
+#ifdef LIBVNCSERVER_HAVE_LIBZ
+  /* extendedclipboard. tell server we support it if client has the callback set */
+  if(client->GotXCutTextUTF8)
+    if (se->nEncodings < MAX_ENCODINGS)
+       encs[se->nEncodings++] = rfbClientSwap32IfLE(rfbEncodingExtendedClipboard);
+#endif
 
   /* client extensions */
   for(e = rfbClientExtensions; e; e = e->next)
@@ -1443,7 +1495,12 @@ SendFramebufferUpdateRequest(rfbClient* client, int x, int y, int w, int h, rfbB
   rfbFramebufferUpdateRequestMsg fur;
 
   if (!SupportsClient2Server(client, rfbFramebufferUpdateRequest)) return TRUE;
-  
+
+  if (client->requestedResize) {
+    rfbClientLog("Skipping Update - resize in progress\n");
+    return TRUE;
+  }
+
   fur.type = rfbFramebufferUpdateRequest;
   fur.incremental = incremental ? 1 : 0;
   fur.x = rfbClientSwap16IfLE(x);
@@ -1619,6 +1676,74 @@ SendPointerEvent(rfbClient* client,int x, int y, int buttonMask)
 
 
 /*
+ * Resize client
+ */
+
+static rfbBool
+ResizeClientBuffer(rfbClient* client, int width, int height)
+{
+  client->width = width;
+  client->height = height;
+  /* Only adadpt updateRect to new dimensions if managed by lib */
+  if (client->isUpdateRectManagedByLib) {
+      client->updateRect.x = client->updateRect.y = 0;
+      client->updateRect.w = client->width;
+      client->updateRect.h = client->height;
+  }
+  return client->MallocFrameBuffer(client);
+}
+
+
+/*
+ * SendExtDesktopSize
+ */
+
+rfbBool
+SendExtDesktopSize(rfbClient* client, uint16_t width, uint16_t height)
+{
+  rfbSetDesktopSizeMsg sdm;
+  rfbExtDesktopScreen screen;
+
+  if (client->screen.width == 0 && client->screen.height == 0 ) {
+    rfbClientLog("Screen not yet received from server - not sending dimensions %dx%d\n", width, height);
+    return TRUE;
+  }
+
+  if (client->screen.width != rfbClientSwap16IfLE(width) || client->screen.height != rfbClientSwap16IfLE(height)) {
+    rfbClientLog("Sending dimensions %dx%d\n", width, height);
+    sdm.type = rfbSetDesktopSize;
+    sdm.width = rfbClientSwap16IfLE(width);
+    sdm.height = rfbClientSwap16IfLE(height);
+    sdm.numberOfScreens = 1;
+
+    /* Copy existing screen information to send with update. */
+    screen.id = client->screen.id;
+    screen.x = client->screen.x;
+    screen.y = client->screen.y;
+    screen.flags = client->screen.flags;
+
+    /* Get updated width and height for the resize. */
+    screen.width = rfbClientSwap16IfLE(width);
+    screen.height = rfbClientSwap16IfLE(height);
+
+    if (!WriteToRFBServer(client, (char *)&sdm, sz_rfbSetDesktopSizeMsg)) return FALSE;
+    if (!WriteToRFBServer(client, (char *)&screen, sz_rfbExtDesktopScreen)) return FALSE;
+
+    client->screen.width = screen.width;
+    client->screen.height = screen.height;
+
+    client->requestedResize = FALSE;
+
+    SendFramebufferUpdateRequest(client, 0, 0, width, height, FALSE);
+
+    client->requestedResize = TRUE;
+  }
+
+  return TRUE;
+}
+
+
+/*
  * SendKeyEvent.
  */
 
@@ -1662,6 +1787,116 @@ SendExtendedKeyEvent(rfbClient* client, uint32_t keysym, uint32_t keycode, rfbBo
 }
 
 
+#ifdef LIBVNCSERVER_HAVE_LIBZ
+/*
+ * sendExtClientCutTextNotify
+ * it is needed when client send utf8 clipboard data
+ * please refer to
+ * https://github.com/rfbproto/rfbproto/blob/master/rfbproto.rst#extended-clipboard-pseudo-encoding
+ * to supprot utf-8 clipboard we need at least support notify and text
+ */
+
+static rfbBool
+sendExtClientCutTextNotify(rfbClient *client)
+{
+  rfbClientCutTextMsg cct = {0, };
+  const uint32_t be_flags = rfbClientSwap32IfLE(rfbExtendedClipboard_Notify
+                                                | rfbExtendedClipboard_Text); /*text and notify*/
+  cct.type = rfbClientCutText;
+  cct.length = rfbClientSwap32IfLE(-((uint32_t)sizeof(be_flags)));/*flag*/
+  rfbBool ret = WriteToRFBServer(client, (char *)&cct, sz_rfbClientCutTextMsg)
+                && WriteToRFBServer(client, (char *)&be_flags, sizeof(be_flags));
+  return ret;
+}
+
+/**
+ * Due to bugs, many servers (including most versions of LibVNCServer) can't
+ * properly handle zlib streams created by compress() function of zlib library.
+ *
+ * Primary bug is that these servers don't expect inflate() to return Z_STREAM_END
+ * which is the case for (correct) streams created by compress().
+ *
+ * So this function creates a compatible stream, for which inflate() returns Z_OK.
+ * This is how some clients create zlib streams, unintentionally avoiding the bug.
+ */
+static int
+CompressClipData(Bytef *dest, uLongf *destLen, Bytef *source, uLong sourceLen)
+{
+  int ret;
+  z_stream zs;
+  memset(&zs, 0, sizeof(z_stream));
+
+  zs.zfree = Z_NULL;
+  zs.zalloc = Z_NULL;
+  zs.opaque = Z_NULL;
+  ret = deflateInit(&zs, Z_DEFAULT_COMPRESSION);
+  if (ret == Z_OK) {
+    zs.avail_in = sourceLen;
+    zs.next_in = source;
+    zs.avail_out = *destLen;
+    zs.next_out = dest;
+
+    do {
+      // Using Z_SYNC_FLUSH instead of Z_FINISH is the key here.
+      ret = deflate(&zs, Z_SYNC_FLUSH);
+    } while (ret >= 0 && zs.avail_in > 0);
+
+    *destLen = zs.total_out;
+    deflateEnd(&zs);
+  }
+  return ret;
+}
+
+/*
+ * sendExtClientCutTextProvide
+ * it need send notify first to grab clipboard (server will check that)
+ */
+
+static rfbBool
+sendExtClientCutTextProvide(rfbClient *client, char* data, int len)
+{
+  rfbClientCutTextMsg cct = {0, };
+  int sentLen = len + 1;  /* Sent data is null terminated*/
+  const uint32_t be_flags = rfbClientSwap32IfLE(rfbExtendedClipboard_Provide
+                                                | rfbExtendedClipboard_Text); /*text and provide*/
+  const uint32_t be_size = rfbClientSwap32IfLE(sentLen);
+  const size_t sz_to_compressed = sizeof(be_size) + sentLen; /*size, data*/
+  uLong csz = compressBound(sz_to_compressed);
+
+  unsigned char *buf = malloc(sz_to_compressed);
+  if (!buf) {
+    rfbClientLog("sendExtClientCutTextProvide. alloc buf failed\n");
+    return FALSE;
+  }
+  memcpy(buf, &be_size, sizeof(be_size));
+  memcpy(buf + sizeof(be_size), data, len);
+  buf[sz_to_compressed - 1] = 0;  /* Null terminate sent data */
+
+  unsigned char *cbuf = malloc(sizeof(be_flags) + csz); /*flag, compressed*/
+  if (!cbuf) {
+    rfbClientLog("sendExtClientCutTextProvide. alloc cbuf failed\n");
+    free(buf);
+    return FALSE;
+  }
+  memcpy(cbuf, &be_flags, sizeof(be_flags));
+  if (CompressClipData(cbuf + sizeof(be_flags), &csz, buf, sz_to_compressed) != Z_OK) {
+    rfbClientLog("sendExtClientCutTextProvide: compress cbuf failed\n");
+    free(buf);
+    free(cbuf);
+    return FALSE;
+  }
+
+  cct.type = rfbClientCutText;
+  cct.length = rfbClientSwap32IfLE(-(sizeof(be_flags) + csz));/*flag, compressed*/
+  rfbBool ret = sendExtClientCutTextNotify(client)
+                && WriteToRFBServer(client, (char *)&cct, sz_rfbClientCutTextMsg)
+                && WriteToRFBServer(client, (char *)cbuf, sizeof(be_flags) + csz);
+  free(buf);
+  free(cbuf);
+  return ret;
+}
+#endif
+
 /*
  * SendClientCutText.
  */
@@ -1680,7 +1915,135 @@ SendClientCutText(rfbClient* client, char *str, int len)
 	   WriteToRFBServer(client, str, len));
 }
 
+rfbBool
+SendClientCutTextUTF8(rfbClient* client, char *str, int len)
+{
+#ifdef LIBVNCSERVER_HAVE_LIBZ
+    return client->extendedClipboardServerCapabilities && sendExtClientCutTextProvide(client, str, len);
+#else
+    return FALSE;
+#endif
+}
 
+
+#ifdef LIBVNCSERVER_HAVE_LIBZ
+/*
+ * process server clipboard extend text
+ */
+
+static rfbBool
+rfbClientProcessExtServerCutText(rfbClient* client, char *data, int len)
+{
+  uint32_t flags;
+  if (len < sizeof(flags)) {
+    rfbClientLog("rfbClientProcessExtServerCutText. len < 4\n");
+    return FALSE;
+  }
+  memcpy(&flags, data, sizeof(flags));
+  data += sizeof(flags);
+  len -= sizeof(flags);
+  flags = rfbClientSwap32IfLE(flags);
+
+  /*
+   * only process (text | provide). Ignore all others
+   * modify here if need more types(rtf,html,dib,files)
+   */
+  if (!(flags & rfbExtendedClipboard_Text)) {
+    rfbClientLog("rfbClientProcessExtServerCutText. not text type. ignore\n");
+    return TRUE;
+  }
+  if (!(flags & rfbExtendedClipboard_Provide)) {
+    rfbClientLog("rfbClientProcessExtServerCutText. not provide type. ignore\n");
+    return TRUE;
+  }
+  if (flags & rfbExtendedClipboard_Caps) {
+    rfbClientLog("rfbClientProcessExtServerCutText. default cap.\n");
+    client->extendedClipboardServerCapabilities |= rfbExtendedClipboard_Text; /* for now, only text */
+    return TRUE;
+  }
+
+  z_stream stream;
+  stream.zalloc = NULL;
+  stream.zfree = NULL;
+  stream.opaque = NULL;
+  stream.avail_in = 0;
+  stream.next_in = NULL;
+  if (inflateInit(&stream) != Z_OK) {
+    rfbClientLog("rfbClientProcessExtServerCutText. inflateInit failed\n");
+    return FALSE;
+  }
+  stream.avail_in = len;
+  stream.next_in = (unsigned char *)data;
+
+  uint32_t size;
+  stream.avail_out = sizeof(size);
+  stream.next_out = (unsigned char *)&size;
+  if (inflate(&stream, Z_SYNC_FLUSH) != Z_OK) {
+    rfbClientLog("rfbClientProcessExtServerCutText. inflate size failed\n");
+    inflateEnd(&stream);
+    return FALSE;
+  }
+  size = rfbClientSwap32IfLE(size);
+  if (size > (1 << 20)) {
+    rfbClientLog("rfbClientProcessExtServerCutText. size too large\n");
+    inflateEnd(&stream);
+    return FALSE;
+  }
+
+  unsigned char *buf = malloc(size);
+  if (!buf) {
+    rfbClientLog("rfbClientProcessExtServerCutText. alloc buf failed\n");
+    inflateEnd(&stream);
+    return FALSE;
+  }
+  stream.avail_out = size;
+  stream.next_out = buf;
+  uLong out_before = stream.total_out;
+  int err = inflate(&stream, Z_SYNC_FLUSH);
+  if (err != Z_OK && err != Z_STREAM_END) {
+    rfbClientLog("rfbClientProcessExtServerCutText. inflate buf failed\n");
+    free(buf);
+    inflateEnd(&stream);
+    return FALSE;
+  }
+  if ((stream.total_out - out_before) != size) {
+    rfbClientLog("rfbClientProcessExtServerCutText. inflate size error\n");
+    free(buf);
+    inflateEnd(&stream);
+    return FALSE;
+  }
+  if (client->GotXCutTextUTF8)
+    client->GotXCutTextUTF8(client, (char *)buf, size);
+  free(buf);
+
+  inflateEnd(&stream);
+  return TRUE;
+}
+#endif
+
+void rfbClientSetUpdateRect(rfbClient *client, rfbRectangle *rect) {
+    if (rect) {
+	client->updateRect.x = rect->x;
+	client->updateRect.y = rect->y;
+	client->updateRect.w = rect->w;
+	client->updateRect.h = rect->h;
+	client->isUpdateRectManagedByLib = FALSE;
+    } else {
+	/* rect NULL, reset to defaults */
+	client->updateRect.x = client->updateRect.y = 0;
+	client->updateRect.w = client->width;
+	client->updateRect.h = client->height;
+	client->isUpdateRectManagedByLib = TRUE;
+    }
+}
+
+void rfbClientGetUpdateRect(rfbClient *client, rfbRectangle *rect, rfbBool *isManagedByLib) {
+    rect->x = client->updateRect.x;
+    rect->y = client->updateRect.y;
+    rect->w = client->updateRect.w;
+    rect->h = client->updateRect.h;
+    *isManagedByLib = client->isUpdateRectManagedByLib;
+}
 
 /*
  * HandleRFBServerMessage.
@@ -1783,16 +2146,46 @@ HandleRFBServerMessage(rfbClient* client)
       }
 
       if (rect.encoding == rfbEncodingNewFBSize) {
-	client->width = rect.r.w;
-	client->height = rect.r.h;
-	client->updateRect.x = client->updateRect.y = 0;
-	client->updateRect.w = client->width;
-	client->updateRect.h = client->height;
-	if (!client->MallocFrameBuffer(client))
+	if(!ResizeClientBuffer(client, rect.r.w, rect.r.h))
 	  return FALSE;
 	SendFramebufferUpdateRequest(client, 0, 0, rect.r.w, rect.r.h, FALSE);
 	rfbClientLog("Got new framebuffer size: %dx%d\n", rect.r.w, rect.r.h);
 	continue;
+      }
+
+      if (rect.encoding == rfbEncodingExtDesktopSize) {
+        /* read encoding data */
+        int screens;
+        int loop;
+        rfbBool invalidScreen = FALSE;
+        rfbExtDesktopScreen screen;
+        rfbExtDesktopSizeMsg eds;
+        if (!ReadFromRFBServer(client, ((char *)&eds), sz_rfbExtDesktopSizeMsg)) {
+          return FALSE;
+        }
+
+        screens = eds.numberOfScreens;
+        for (loop=0; loop < screens; loop++)
+        {
+          if (!ReadFromRFBServer(client, ((char *)&screen), sz_rfbExtDesktopScreen)) {
+            return FALSE;
+          }
+          if (screen.width && screen.height) {
+            client->screen = screen;
+          } else {
+            invalidScreen = TRUE;
+          }
+        }
+
+        if (!invalidScreen && (client->width != rect.r.w || client->height != rect.r.h)) {
+          if(!ResizeClientBuffer(client, rect.r.w, rect.r.h)) {
+            return FALSE;
+          }
+          rfbClientLog("Updated desktop size: %dx%d\n", rect.r.w, rect.r.h);
+        }
+        client->requestedResize = FALSE;
+
+        continue;
       }
 
       /* rect.r.w=byte count */
@@ -2195,12 +2588,20 @@ HandleRFBServerMessage(rfbClient* client)
   case rfbServerCutText:
   {
     char *buffer;
+#ifdef LIBVNCSERVER_HAVE_LIBZ
+    int32_t ilen; /* also as a flag, if ilen < 0, it is ext clipboard text */
+#endif
 
     if (!ReadFromRFBServer(client, ((char *)&msg) + 1,
 			   sz_rfbServerCutTextMsg - 1))
       return FALSE;
 
+#ifdef LIBVNCSERVER_HAVE_LIBZ
+    ilen = rfbClientSwap32IfLE(msg.sct.length);
+    msg.sct.length = ilen < 0 ? -ilen : ilen;
+#else
     msg.sct.length = rfbClientSwap32IfLE(msg.sct.length);
+#endif
 
     if (msg.sct.length > 1<<20) {
 	    rfbClientErr("Ignoring too big cut text length sent by server: %u B > 1 MB\n", (unsigned int)msg.sct.length);
@@ -2216,8 +2617,18 @@ HandleRFBServerMessage(rfbClient* client)
 
     buffer[msg.sct.length] = 0;
 
+#ifdef LIBVNCSERVER_HAVE_LIBZ
+    if (ilen < 0 && client->GotXCutTextUTF8) {
+      if (!rfbClientProcessExtServerCutText(client, buffer, -ilen)) {
+        free(buffer);
+        return FALSE;
+      }
+    } else if (client->GotXCutText)
+      client->GotXCutText(client, buffer, msg.sct.length);
+#else
     if (client->GotXCutText)
       client->GotXCutText(client, buffer, msg.sct.length);
+#endif
 
     free(buffer);
 
@@ -2290,12 +2701,7 @@ HandleRFBServerMessage(rfbClient* client)
     if (!ReadFromRFBServer(client, ((char *)&msg) + 1,
                            sz_rfbResizeFrameBufferMsg -1))
       return FALSE;
-    client->width = rfbClientSwap16IfLE(msg.rsfb.framebufferWidth);
-    client->height = rfbClientSwap16IfLE(msg.rsfb.framebufferHeigth);
-    client->updateRect.x = client->updateRect.y = 0;
-    client->updateRect.w = client->width;
-    client->updateRect.h = client->height;
-    if (!client->MallocFrameBuffer(client))
+    if (!ResizeClientBuffer(client, rfbClientSwap16IfLE(msg.rsfb.framebufferWidth), rfbClientSwap16IfLE(msg.rsfb.framebufferHeigth)))
       return FALSE;
 
     SendFramebufferUpdateRequest(client, 0, 0, client->width, client->height, FALSE);
@@ -2308,12 +2714,7 @@ HandleRFBServerMessage(rfbClient* client)
     if (!ReadFromRFBServer(client, ((char *)&msg) + 1,
                            sz_rfbPalmVNCReSizeFrameBufferMsg -1))
       return FALSE;
-    client->width = rfbClientSwap16IfLE(msg.prsfb.buffer_w);
-    client->height = rfbClientSwap16IfLE(msg.prsfb.buffer_h);
-    client->updateRect.x = client->updateRect.y = 0;
-    client->updateRect.w = client->width;
-    client->updateRect.h = client->height;
-    if (!client->MallocFrameBuffer(client))
+    if (!ResizeClientBuffer(client, rfbClientSwap16IfLE(msg.prsfb.buffer_w), rfbClientSwap16IfLE(msg.prsfb.buffer_h)))
       return FALSE;
     SendFramebufferUpdateRequest(client, 0, 0, client->width, client->height, FALSE);
     rfbClientLog("Got new framebuffer size: %dx%d\n", client->width, client->height);
